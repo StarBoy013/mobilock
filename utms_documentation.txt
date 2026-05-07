@@ -1,0 +1,573 @@
+UNIVERSITY TRANSPORT
+MANAGEMENT SYSTEM
+Technical Architecture & Developer Documentation
+MERN Stack  |  Next.js App Router  |  MongoDB Atlas
+Version 1.0  |  Production-Ready Documentation  |  Internal Engineering Reference
+
+1. System Architecture
+
+1.1 High-Level Architecture
+The system follows a decoupled architecture: a Next.js 14 frontend (App Router) communicates with an Express.js REST API backend, with MongoDB Atlas as the primary datastore. JWT-based authentication spans both layers.
+Architecture Layers
+1.2 Folder Structure
+Backend (Express.js)
+server/
+  src/
+    config/         # DB connection, env validation
+    controllers/    # Route handler logic
+    middleware/      # auth, RBAC, error, rate-limit
+    models/          # Mongoose schemas
+    routes/          # Express router files
+    services/        # Business logic (pass gen, QR, email)
+    utils/           # helpers, validators, logger
+    jobs/            # Cron jobs (auto-renewal, expiry check)
+  server.js          # Entry point
+  .env               # Environment variables
+Frontend (Next.js App Router)
+app/
+  (auth)/            # Public: login, register
+  (admin)/           # Super Admin layout + pages
+    dashboard/
+    applications/
+    buses/
+    routes/
+    analytics/
+  (student)/         # Student layout + pages
+    dashboard/
+    apply/
+    pass/
+    history/
+  (conductor)/       # Conductor layout + pages
+    scan/
+  api/               # Next.js API routes (optional proxies)
+  layout.tsx
+components/          # Shared UI components
+lib/                 # API client, auth helpers, utils
+store/               # Zustand global stores
+hooks/               # React Query hooks
+1.3 Data Flow (End-to-End)
+Request flow for a student submitting a pass application:
+Student fills form in Next.js UI and uploads documents to Cloudinary
+Frontend calls POST /api/applications with JWT in Authorization header
+Express auth middleware verifies JWT, extracts userId and role
+RBAC middleware checks role === 'student'
+Controller validates payload (Zod), creates PassApplication document
+Admin receives notification; approves via PATCH /api/applications/:id
+PassService generates Pass document and HMAC-signed QR payload
+Student fetches pass; QR rendered in browser via qrcode library
+Conductor scans QR via camera; payload POSTed to /api/verify
+VerifyService decodes, validates HMAC, checks pass status and bus assignment, returns result
+VerificationLog document created for audit trail
+1.4 State Management Strategy
+
+2. Database Design (MongoDB + Mongoose)
+
+2.1 User Schema
+// models/User.js
+const userSchema = new Schema({
+  name:         { type: String, required: true, trim: true },
+  email:        { type: String, required: true, unique: true, lowercase: true },
+  passwordHash: { type: String, required: true },
+  role:         { type: String, enum: ['super_admin','student','conductor'], required: true },
+  universityId: { type: String, unique: true, sparse: true }, // students only
+  phone:        { type: String },
+  assignedBus:  { type: ObjectId, ref: 'Bus' },              // conductor only
+  isActive:     { type: Boolean, default: true },
+  refreshToken: { type: String },
+  lastLogin:    { type: Date },
+}, { timestamps: true });
+
+userSchema.index({ email: 1 });
+userSchema.index({ role: 1, isActive: 1 });
+userSchema.index({ universityId: 1 }, { sparse: true });
+2.2 Bus Schema
+// models/Bus.js
+const busSchema = new Schema({
+  busNumber:     { type: String, required: true, unique: true },
+  capacity:      { type: Number, required: true },
+  driverName:    { type: String, required: true },
+  driverContact: { type: String, required: true },
+  conductor:     { type: ObjectId, ref: 'User' },
+  assignedRoute: { type: ObjectId, ref: 'Route' },
+  isActive:      { type: Boolean, default: true },
+}, { timestamps: true });
+
+busSchema.index({ busNumber: 1 });
+busSchema.index({ conductor: 1 });
+2.3 Route Schema
+// models/Route.js
+const routeSchema = new Schema({
+  name:     { type: String, required: true },
+  stops:    [{ name: String, order: Number, coords: { lat: Number, lng: Number } }],
+  distance: { type: Number },  // km
+  isActive: { type: Boolean, default: true },
+}, { timestamps: true });
+2.4 PassApplication Schema
+// models/PassApplication.js
+const passApplicationSchema = new Schema({
+  student:       { type: ObjectId, ref: 'User', required: true },
+  status:        { type: String, enum: ['pending','approved','rejected'], default: 'pending' },
+  documents: {
+    universityIdUrl: { type: String, required: true },
+    feeReceiptUrl:   { type: String, required: true },
+  },
+  assignedBus:   { type: ObjectId, ref: 'Bus' },
+  assignedRoute: { type: ObjectId, ref: 'Route' },
+  reviewedBy:    { type: ObjectId, ref: 'User' },
+  reviewNote:    { type: String },
+  reviewedAt:    { type: Date },
+  autoRenew:     { type: Boolean, default: false },
+}, { timestamps: true });
+
+passApplicationSchema.index({ student: 1, status: 1 });
+passApplicationSchema.index({ status: 1, createdAt: -1 });
+2.5 Pass Schema
+// models/Pass.js
+const passSchema = new Schema({
+  student:       { type: ObjectId, ref: 'User', required: true, unique: true },
+  application:   { type: ObjectId, ref: 'PassApplication', required: true },
+  assignedBus:   { type: ObjectId, ref: 'Bus', required: true },
+  assignedRoute: { type: ObjectId, ref: 'Route', required: true },
+  status:        { type: String, enum: ['active','expired','suspended','revoked'], default: 'active' },
+  qrToken:       { type: String, required: true, unique: true },
+  issuedAt:      { type: Date, default: Date.now },
+  expiresAt:     { type: Date, required: true },  // issuedAt + 6 months
+  autoRenew:     { type: Boolean, default: false },
+  lastScannedAt: { type: Date },
+}, { timestamps: true });
+
+passSchema.index({ student: 1 });
+passSchema.index({ qrToken: 1 }, { unique: true });
+passSchema.index({ status: 1, expiresAt: 1 });
+2.6 VerificationLog Schema
+// models/VerificationLog.js
+const verificationLogSchema = new Schema({
+  pass:      { type: ObjectId, ref: 'Pass' },
+  student:   { type: ObjectId, ref: 'User' },
+  conductor: { type: ObjectId, ref: 'User', required: true },
+  bus:       { type: ObjectId, ref: 'Bus', required: true },
+  result:    { type: String, enum: ['valid','invalid'], required: true },
+  reason:    { type: String },   // e.g. 'expired', 'suspended', 'wrong_bus', 'tampered'
+  scannedAt: { type: Date, default: Date.now },
+}, { timestamps: false });
+
+verificationLogSchema.index({ scannedAt: -1 });
+verificationLogSchema.index({ student: 1, scannedAt: -1 });
+verificationLogSchema.index({ bus: 1, scannedAt: -1 });
+
+2.7 Relationship Summary
+
+3. Authentication & RBAC
+
+3.1 JWT Strategy
+Two-token strategy: short-lived access token + long-lived refresh token stored in HTTP-only cookie.
+
+// services/TokenService.js
+const generateTokens = (userId, role) => ({
+  accessToken:  jwt.sign({ sub: userId, role }, process.env.ACCESS_SECRET,  { expiresIn: '15m' }),
+  refreshToken: jwt.sign({ sub: userId },      process.env.REFRESH_SECRET, { expiresIn: '7d'  }),
+});
+3.2 Auth Middleware
+// middleware/auth.js
+export const authenticate = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'No token' });
+  try {
+    req.user = jwt.verify(token, process.env.ACCESS_SECRET);
+    next();
+  } catch { res.status(401).json({ error: 'Invalid token' }); }
+};
+
+// middleware/rbac.js
+export const authorize = (...roles) => (req, res, next) => {
+  if (!roles.includes(req.user.role))
+    return res.status(403).json({ error: 'Forbidden' });
+  next();
+};
+3.3 Protected Routes (Next.js)
+// middleware.ts  (Next.js root middleware)
+export function middleware(request: NextRequest) {
+  const token = request.cookies.get('accessToken')?.value;
+  const { pathname } = request.nextUrl;
+
+  const roleRoutes = {
+    '/admin':     'super_admin',
+    '/student':   'student',
+    '/conductor': 'conductor',
+  };
+
+  const requiredRole = Object.entries(roleRoutes)
+    .find(([path]) => pathname.startsWith(path))?.[1];
+
+  if (!requiredRole) return NextResponse.next();
+  if (!token) return NextResponse.redirect(new URL('/login', request.url));
+
+  const payload = verifyToken(token);
+  if (!payload || payload.role !== requiredRole)
+    return NextResponse.redirect(new URL('/login', request.url));
+
+  return NextResponse.next();
+}
+
+4. Core Workflows
+
+4.1 Student Applies for Bus Pass
+Student logs in, navigates to /student/apply
+Fills form: selects route preference, uploads University ID and Fee Receipt to Cloudinary
+Frontend receives Cloudinary URLs, POSTs to POST /api/applications
+Backend creates PassApplication { status: 'pending', documents: { urls } }
+Admin dashboard shows new pending application with badge count
+Student status page polls GET /api/applications/my — shows 'Pending'
+4.2 Admin Approval Process
+Admin opens application list, filters by status: 'pending'
+Clicks application to view detail: student info, documents, route preference
+Downloads/previews ID and fee receipt from Cloudinary URLs
+Assigns a bus and route, optionally adds a review note
+Clicks Approve — PATCH /api/applications/:id { status: 'approved', assignedBus, assignedRoute }
+Controller atomically: (a) updates application, (b) calls PassService.generate()
+Student receives email notification via NodeMailer
+If rejected: status set to 'rejected', reviewNote saved, student notified
+4.3 Pass Generation (QR Logic)
+// services/PassService.js
+const generate = async (applicationId) => {
+  const app = await PassApplication.findById(applicationId)
+    .populate('student assignedBus assignedRoute');
+
+  const payload = {
+    passId:    new mongoose.Types.ObjectId().toString(),
+    studentId: app.student._id.toString(),
+    busId:     app.assignedBus._id.toString(),
+    exp:       addMonths(new Date(), 6).getTime(),
+  };
+
+  const hmac = crypto.createHmac('sha256', process.env.QR_SECRET)
+    .update(JSON.stringify(payload))
+    .digest('hex');
+
+  const qrToken = Buffer.from(JSON.stringify({ ...payload, hmac })).toString('base64url');
+
+  return Pass.create({
+    student:       app.student._id,
+    application:   applicationId,
+    assignedBus:   app.assignedBus._id,
+    assignedRoute: app.assignedRoute._id,
+    qrToken,
+    issuedAt:  new Date(),
+    expiresAt: addMonths(new Date(), 6),
+    autoRenew: app.autoRenew,
+  });
+};
+4.4 QR Verification Flow (HMAC Validation)
+Conductor opens scanner screen (/conductor/scan)
+Browser requests camera; uses jsQR or html5-qrcode library
+Decoded QR string POSTed to POST /api/verify
+VerifyService decodes base64url, parses JSON
+Recomputes HMAC on { passId, studentId, busId, exp } — compares with hmac field
+If HMAC mismatch: return { result: 'invalid', reason: 'tampered' }
+If exp < Date.now(): return { result: 'invalid', reason: 'expired' }
+Fetch Pass from DB by passId — check status not 'suspended'/'revoked'
+Check pass.assignedBus === conductor's assignedBus — prevents bus hopping
+If all checks pass: return { result: 'valid', student: { name, universityId } }
+Create VerificationLog entry regardless of result
+Update pass.lastScannedAt on valid scan
+4.5 Auto-Renewal System
+// jobs/autoRenew.js  (runs daily via node-cron)
+cron.schedule('0 2 * * *', async () => {
+  const soon = addDays(new Date(), 7); // expires in 7 days
+  const passes = await Pass.find({
+    autoRenew: true,
+    status: 'active',
+    expiresAt: { $lte: soon }
+  }).populate('student application');
+
+  for (const pass of passes) {
+    // Create new application pre-approved
+    const newApp = await PassApplication.create({
+      student:       pass.student._id,
+      status:        'approved',
+      documents:     pass.application.documents,
+      assignedBus:   pass.assignedBus,
+      assignedRoute: pass.assignedRoute,
+      autoRenew:     true,
+    });
+    await PassService.generate(newApp._id);
+    await Pass.findByIdAndUpdate(pass._id, { status: 'expired' });
+  }
+});
+
+5. API Design (Express.js)
+
+5.1 Auth Routes — /api/auth
+5.2 Application Routes — /api/applications
+5.3 Pass Routes — /api/passes
+5.4 Bus & Route Routes
+5.5 Verification Route — /api/verify
+5.6 Analytics Routes — /api/analytics
+5.7 Request / Response Examples
+POST /api/auth/login — Request
+{ "email": "ali@university.edu", "password": "Secret123!" }
+POST /api/auth/login — Response (200)
+{ "accessToken": "eyJhbGci...", "user": { "_id": "...", "name": "Ali", "role": "student" } }
+PATCH /api/applications/:id — Request (Admin Approve)
+{ "status": "approved", "assignedBus": "busId123", "assignedRoute": "routeId456", "reviewNote": "Docs verified" }
+PATCH /api/applications/:id — Response (200)
+{ "application": { "status": "approved", ... }, "pass": { "qrToken": "eyJ...", "expiresAt": "2026-01-01" } }
+POST /api/verify — Request
+{ "qrToken": "eyJwYXNzSWQiOi..." }
+POST /api/verify — Response (200 VALID)
+{ "result": "valid", "student": { "name": "Ali Hassan", "universityId": "U-2021-0045" } }
+POST /api/verify — Response (200 INVALID)
+{ "result": "invalid", "reason": "expired" }
+
+6. Frontend Architecture (Next.js App Router)
+
+6.1 Route Groups & Layouts
+6.2 Key Pages
+6.3 Zustand Auth Store
+// store/authStore.ts
+interface AuthState {
+  user: User | null;
+  accessToken: string | null;
+  setAuth: (user: User, token: string) => void;
+  clearAuth: () => void;
+}
+
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      user: null, accessToken: null,
+      setAuth: (user, accessToken) => set({ user, accessToken }),
+      clearAuth: () => set({ user: null, accessToken: null }),
+    }),
+    { name: 'auth-storage' }
+  )
+);
+6.4 API Client
+// lib/apiClient.ts
+const api = axios.create({ baseURL: process.env.NEXT_PUBLIC_API_URL });
+
+api.interceptors.request.use((config) => {
+  const token = useAuthStore.getState().accessToken;
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+api.interceptors.response.use(
+  (res) => res,
+  async (error) => {
+    if (error.response?.status === 401) {
+      await refreshToken();  // POST /auth/refresh
+      return api(error.config);
+    }
+    return Promise.reject(error);
+  }
+);
+
+7. Dashboard Structure
+
+7.1 Super Admin Dashboard
+KPI Cards (top row)
+Application Management Table
+Bus Management Panel
+Add bus: Bus number, capacity, driver name, driver phone, assign conductor
+Assign route to bus via dropdown
+View student list per bus (count + names)
+Deactivate bus (passes unaffected, alerts admin)
+Analytics Charts
+7.2 Student Dashboard
+Pass Card Component
+Displays: Student name, University ID, Bus number, Route name, Expiry date
+QR Code rendered via qrcode.react from qrToken
+Status badge: Active (green) / Expired (red) / Suspended (orange)
+Auto-renewal toggle switch
+Application Status Tracker
+Step indicator: Submitted -> Under Review -> Approved/Rejected
+Shows reviewer note if rejected
+Re-apply button if rejected
+Scan History Table
+7.3 Conductor Dashboard
+Scanner Screen (/conductor/scan)
+Full-screen camera view using html5-qrcode library
+Scan result overlay replaces camera feed on scan
+VALID: Green overlay, student name, university ID, photo icon
+INVALID: Red overlay, reason (expired / suspended / wrong bus / tampered)
+Auto-resets after 3 seconds to resume scanning
+Shows assigned bus number and route name in header
+
+8. QR System Design
+
+8.1 Token Structure
+The QR token is a base64url-encoded JSON object containing:
+{
+  passId:    string,   // MongoDB ObjectId of Pass document
+  studentId: string,   // MongoDB ObjectId of User document
+  busId:     string,   // MongoDB ObjectId of assigned Bus
+  exp:       number,   // Unix timestamp (ms) — pass expiry
+  hmac:      string,   // HMAC-SHA256 hex of above 4 fields
+}
+8.2 HMAC Signing
+const payload = { passId, studentId, busId, exp };
+const hmac = crypto
+  .createHmac('sha256', process.env.QR_SECRET)
+  .update(JSON.stringify(payload))   // deterministic field order
+  .digest('hex');
+
+const qrToken = Buffer
+  .from(JSON.stringify({ ...payload, hmac }))
+  .toString('base64url');             // URL-safe, no padding
+8.3 Anti-Tampering Verification
+const verify = (qrToken) => {
+  const raw = JSON.parse(Buffer.from(qrToken, 'base64url').toString());
+  const { hmac, ...data } = raw;
+
+  // Recompute HMAC — same key, same field order
+  const expected = crypto
+    .createHmac('sha256', process.env.QR_SECRET)
+    .update(JSON.stringify(data))
+    .digest('hex');
+
+  // Timing-safe comparison prevents timing attacks
+  if (!crypto.timingSafeEqual(
+    Buffer.from(hmac), Buffer.from(expected)
+  )) return { valid: false, reason: 'tampered' };
+
+  if (data.exp < Date.now()) return { valid: false, reason: 'expired' };
+
+  return { valid: true, data };
+};
+8.4 Optional: Rotating QR
+For higher security, QR tokens can rotate every 60 seconds. Implementation approach:
+Pass document stores a qrSeed (random bytes) alongside the HMAC key
+Frontend fetches a fresh QR token via GET /api/passes/my/qr every 55 seconds
+Token includes iat (issued-at, minute-resolution) — server rejects tokens older than 2 minutes
+Conductor must have network connection to validate rotating tokens
+Note: Static QR is recommended for offline-capable scenarios. Rotating QR is opt-in.
+
+9. Backend Best Practices
+
+9.1 Middleware Stack
+// server.js  — middleware registration order matters
+app.use(helmet());                           // Security headers
+app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
+app.use(express.json({ limit: '1mb' }));
+app.use(cookieParser());
+app.use(morgan('combined', { stream: logger.stream })); // HTTP logging
+app.use(rateLimiter);                        // Global rate limit
+app.use('/api/auth', strictLimiter);         // Stricter on auth routes
+9.2 Rate Limiting
+// middleware/rateLimit.js
+import rateLimit from 'express-rate-limit';
+
+export const rateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+export const strictLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,  // 20 auth attempts per 15 min
+});
+9.3 Validation (Zod)
+// validators/applicationValidator.js
+import { z } from 'zod';
+
+export const createApplicationSchema = z.object({
+  documents: z.object({
+    universityIdUrl: z.string().url(),
+    feeReceiptUrl:   z.string().url(),
+  }),
+  autoRenew: z.boolean().optional().default(false),
+});
+
+// Middleware wrapper
+export const validate = (schema) => (req, res, next) => {
+  const result = schema.safeParse(req.body);
+  if (!result.success) return res.status(400).json({ errors: result.error.flatten() });
+  req.body = result.data;
+  next();
+};
+9.4 Global Error Handler
+// middleware/errorHandler.js
+export const errorHandler = (err, req, res, next) => {
+  const status = err.status || 500;
+  const message = err.message || 'Internal Server Error';
+  logger.error({ status, message, stack: err.stack, url: req.url });
+  res.status(status).json({ error: message });
+};
+
+// Async wrapper — eliminates try/catch boilerplate in controllers
+export const asyncHandler = (fn) => (req, res, next) =>
+  Promise.resolve(fn(req, res, next)).catch(next);
+9.5 Security Checklist
+
+10. Deployment Plan
+
+10.1 Infrastructure Overview
+10.2 Environment Variables
+Backend (.env)
+NODE_ENV=production
+PORT=5000
+MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/utms
+ACCESS_SECRET=<64-char-random-string>
+REFRESH_SECRET=<64-char-random-string>
+QR_SECRET=<64-char-random-string>
+CLIENT_URL=https://utms.example.com
+CLOUDINARY_CLOUD_NAME=xxxxx
+CLOUDINARY_API_KEY=xxxxx
+CLOUDINARY_API_SECRET=xxxxx
+EMAIL_FROM=noreply@university.edu
+RESEND_API_KEY=re_xxxxx
+Frontend (.env.local)
+NEXT_PUBLIC_API_URL=https://api.utms.example.com
+NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME=xxxxx
+10.3 Dockerfile (Backend)
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY . .
+EXPOSE 5000
+CMD ["node", "server.js"]
+
+11. Scalability Considerations
+
+11.1 Caching Strategy
+Redis implementation: Use ioredis. Wrap PassService and analytics queries with cache-aside pattern. Invalidate on writes.
+11.2 Logging Strategy
+// utils/logger.js
+import winston from 'winston';
+
+export const logger = winston.createLogger({
+  level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.Console(),
+    new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'logs/combined.log' }),
+  ],
+});
+11.3 Performance Indexes (MongoDB)
+VerificationLog.scannedAt DESC — most frequent analytics query
+Pass.qrToken unique — single-field lookup on every scan
+Pass.status + expiresAt compound — auto-renewal job filter
+PassApplication.status + createdAt compound — admin list with sort
+User.universityId sparse unique — prevents duplicates, skips nulls
+11.4 Future Multi-University Expansion
+The current schema is single-tenant. To expand to multiple universities:
+Add a University collection with domain, name, settings
+Add universityId (ObjectId ref) field to User, Bus, Route, Pass, PassApplication
+Add university-level admin role (university_admin below super_admin)
+All queries scoped by universityId — ensures data isolation
+Subdomain routing: uni1.utms.com, uni2.utms.com — resolve universityId in middleware
+MongoDB Atlas supports horizontal sharding by universityId at scale
+11.5 Queue-Based Architecture (BullMQ)
+For production at scale, move these workloads to BullMQ queues backed by Redis:
+
+
+End of Documentation
+University Transport Management System  |  v1.0  |  MERN + Next.js
