@@ -9,11 +9,11 @@ interface AuthState {
   setAuth: (user: User, token: string) => void;
   clearAuth: () => void;
   // Mock auth — will be replaced with real API calls
-  mockLogin: (role: UserRole) => void;
+  mockLogin: (roleKey: string) => void;
 }
 
 // Mock users for frontend-only demo
-const mockUsers: Record<UserRole, User> = {
+const mockUsers: Record<string, User> = {
   super_admin: {
     _id: 'admin-001',
     name: 'Dr. Rajesh Kumar',
@@ -33,6 +33,17 @@ const mockUsers: Record<UserRole, User> = {
     isActive: true,
     lastLogin: new Date().toISOString(),
     createdAt: '2024-08-20T00:00:00Z',
+    updatedAt: new Date().toISOString(),
+  },
+  student_expired: {
+    _id: 'student-010',
+    name: 'Tanvi Deshmukh',
+    email: 'tanvi@university.edu',
+    role: 'student',
+    universityId: 'U-2023-0189',
+    isActive: true,
+    lastLogin: new Date().toISOString(),
+    createdAt: '2023-08-20T00:00:00Z',
     updatedAt: new Date().toISOString(),
   },
   conductor: {
@@ -62,11 +73,12 @@ export const useAuthStore = create<AuthState>()(
       clearAuth: () =>
         set({ user: null, accessToken: null, isAuthenticated: false }),
 
-      mockLogin: (role) => {
-        const user = mockUsers[role];
+      mockLogin: (roleKey) => {
+        const user = mockUsers[roleKey];
+        if (!user) return;
         set({
           user,
-          accessToken: `mock-token-${role}-${Date.now()}`,
+          accessToken: `mock-token-${roleKey}-${Date.now()}`,
           isAuthenticated: true,
         });
       },

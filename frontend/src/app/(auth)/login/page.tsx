@@ -5,18 +5,19 @@ import { useAuthStore } from '@/store/authStore';
 import type { UserRole } from '@/types';
 import { Shield, GraduationCap, ScanLine, ArrowRight } from 'lucide-react';
 
-const roles: { role: UserRole; label: string; desc: string; icon: typeof Shield; redirect: string }[] = [
-  { role: 'super_admin', label: 'Super Admin', desc: 'Operations Control Panel', icon: Shield, redirect: '/admin/dashboard' },
-  { role: 'student', label: 'Student', desc: 'Digital Pass & Applications', icon: GraduationCap, redirect: '/student/dashboard' },
-  { role: 'conductor', label: 'Conductor', desc: 'QR Scanner Terminal', icon: ScanLine, redirect: '/conductor/scan' },
+const roles: { roleKey: string; label: string; desc: string; icon: typeof Shield; redirect: string }[] = [
+  { roleKey: 'super_admin', label: 'Super Admin', desc: 'Operations Control Panel', icon: Shield, redirect: '/admin/dashboard' },
+  { roleKey: 'student', label: 'Student (Active)', desc: 'Digital Pass & Applications', icon: GraduationCap, redirect: '/student/dashboard' },
+  { roleKey: 'student_expired', label: 'Student (Expired)', desc: 'Test expired pass flow', icon: GraduationCap, redirect: '/student/dashboard' },
+  { roleKey: 'conductor', label: 'Conductor', desc: 'QR Scanner Terminal', icon: ScanLine, redirect: '/conductor/scan' },
 ];
 
 export default function LoginPage() {
   const router = useRouter();
   const { mockLogin } = useAuthStore();
 
-  const handleLogin = (role: UserRole, redirect: string) => {
-    mockLogin(role);
+  const handleLogin = (roleKey: string, redirect: string) => {
+    mockLogin(roleKey);
     router.push(redirect);
   };
 
@@ -39,10 +40,10 @@ export default function LoginPage() {
         {/* Role Cards */}
         <div className="space-y-3">
           <p className="text-xs text-text-muted uppercase tracking-wider font-medium mb-2">Select Access Level</p>
-          {roles.map(({ role, label, desc, icon: Icon, redirect }) => (
+          {roles.map(({ roleKey, label, desc, icon: Icon, redirect }) => (
             <button
-              key={role}
-              onClick={() => handleLogin(role, redirect)}
+              key={roleKey}
+              onClick={() => handleLogin(roleKey, redirect)}
               className="w-full group flex items-center gap-4 p-4 bg-bg-surface border border-border-subtle rounded-xl hover:border-primary/30 hover:bg-bg-surface/80 transition-all duration-200"
             >
               <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors shrink-0">
