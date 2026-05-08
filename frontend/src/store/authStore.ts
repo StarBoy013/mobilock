@@ -46,6 +46,17 @@ const mockUsers: Record<string, User> = {
     createdAt: '2023-08-20T00:00:00Z',
     updatedAt: new Date().toISOString(),
   },
+  student_wrong_bus: {
+    _id: 'student-005',
+    name: 'Arjun Patel',
+    email: 'arjun@university.edu',
+    role: 'student',
+    universityId: 'U-2024-0056',
+    isActive: true,
+    lastLogin: new Date().toISOString(),
+    createdAt: '2024-08-20T00:00:00Z',
+    updatedAt: new Date().toISOString(),
+  },
   conductor: {
     _id: 'conductor-001',
     name: 'Vikram Singh',

@@ -103,6 +103,16 @@ export function verifyManualCode(manualCode: string): ScanResult & { _logged?: b
     return { result: 'invalid', reason: 'revoked' };
   }
 
+  // Check wrong bus
+  // In a real app we'd compare pass.assignedBus to the logged-in conductor's assignedBus.
+  // Mocking conductor-001 who is assigned to bus-003
+  const CONDUCTOR_ASSIGNED_BUS = 'bus-003';
+  if (pass.assignedBus !== CONDUCTOR_ASSIGNED_BUS) {
+    logEntry.reason = 'wrong_bus';
+    verificationLogs.push(logEntry);
+    return { result: 'invalid', reason: 'wrong_bus' };
+  }
+
   // Check expiry date
   const now = new Date();
   const expiresAt = new Date(pass.expiresAt);

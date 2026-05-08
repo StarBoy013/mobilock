@@ -9,6 +9,7 @@ const roles: { roleKey: string; label: string; desc: string; icon: typeof Shield
   { roleKey: 'super_admin', label: 'Super Admin', desc: 'Operations Control Panel', icon: Shield, redirect: '/admin/dashboard' },
   { roleKey: 'student', label: 'Student (Active)', desc: 'Digital Pass & Applications', icon: GraduationCap, redirect: '/student/dashboard' },
   { roleKey: 'student_expired', label: 'Student (Expired)', desc: 'Test expired pass flow', icon: GraduationCap, redirect: '/student/dashboard' },
+  { roleKey: 'student_wrong_bus', label: 'Student (Wrong Bus)', desc: 'Test wrong bus flow', icon: GraduationCap, redirect: '/student/dashboard' },
   { roleKey: 'conductor', label: 'Conductor', desc: 'QR Scanner Terminal', icon: ScanLine, redirect: '/conductor/scan' },
 ];
 
