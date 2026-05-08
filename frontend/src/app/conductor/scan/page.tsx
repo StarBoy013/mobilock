@@ -51,9 +51,8 @@ export default function ScannerPage() {
     setScanResult(result);
   };
 
-  const handleManualSubmit = (id: string) => {
-    // Mock manual ID check
-    setScanResult({ result: 'valid', student: { name: 'Student Name', universityId: id } });
+  const handleManualResult = (result: ScanResult) => {
+    setScanResult(result);
     setShowManual(false);
   };
 
@@ -135,7 +134,7 @@ export default function ScannerPage() {
       
       {showManual && (
         <ManualEntry 
-          onSubmit={handleManualSubmit} 
+          onResult={handleManualResult} 
           onClose={() => setShowManual(false)} 
         />
       )}

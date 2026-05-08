@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import type { ScanResult } from '@/types';
-import { CheckCircle2, XCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, Bus } from 'lucide-react';
 
 const REASON_MESSAGES: Record<string, string> = {
   expired: 'Pass Expired',
@@ -51,6 +51,12 @@ export default function ScanOverlay({
             <p className="text-lg font-mono text-text-secondary">
               {result.student?.universityId}
             </p>
+            {result.bus?.busNumber && (
+              <div className="mt-3 flex items-center gap-2 text-sm text-primary">
+                <Bus size={16} />
+                <span className="font-mono font-bold">{result.bus.busNumber}</span>
+              </div>
+            )}
           </>
         ) : (
           <>

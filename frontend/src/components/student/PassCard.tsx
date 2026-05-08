@@ -1,13 +1,33 @@
 'use client';
 
+import { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Pass } from '@/types';
-import { Bus, MapPin, Clock } from 'lucide-react';
+import { Bus, MapPin, Clock, Copy, Check } from 'lucide-react';
 import { cn, daysUntil, getStatusBg, formatDate } from '@/lib/utils';
 
 export default function PassCard({ pass }: { pass: Pass }) {
   const daysLeft = daysUntil(pass.expiresAt);
   const isExpiringSoon = daysLeft <= 7 && daysLeft > 0;
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(pass.manualCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = pass.manualCode;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   return (
     <div className="relative w-full max-w-sm mx-auto bg-bg-surface rounded-2xl border border-border-subtle overflow-hidden shadow-2xl">
@@ -43,8 +63,32 @@ export default function PassCard({ pass }: { pass: Pass }) {
         </p>
       </div>
 
+      {/* Manual Verification Code */}
+      <div className="mx-5 p-3 bg-bg-base/80 border border-border-subtle rounded-xl relative z-10">
+        <p className="text-[10px] text-text-muted uppercase tracking-wider text-center mb-2">
+          Manual Verification Code
+        </p>
+        <div className="flex items-center justify-center gap-2">
+          <span className="text-xl font-mono font-bold text-primary tracking-[0.2em] select-all">
+            {pass.manualCode}
+          </span>
+          <button
+            onClick={handleCopy}
+            className={cn(
+              "w-8 h-8 flex items-center justify-center rounded-lg border transition-all duration-200",
+              copied
+                ? "bg-tertiary/10 border-tertiary/30 text-tertiary"
+                : "bg-bg-surface border-border-subtle text-text-muted hover:text-primary hover:border-primary/30"
+            )}
+            title="Copy code"
+          >
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+          </button>
+        </div>
+      </div>
+
       {/* Details */}
-      <div className="p-5 pt-4 space-y-4 relative z-10 border-t border-border-subtle bg-bg-base/50">
+      <div className="p-5 pt-4 space-y-4 relative z-10 border-t border-border-subtle bg-bg-base/50 mt-3">
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
             <span className="text-[10px] text-text-muted uppercase tracking-wider flex items-center gap-1.5"><Bus size={10} /> Bus Number</span>

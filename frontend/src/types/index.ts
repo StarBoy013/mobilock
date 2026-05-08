@@ -96,6 +96,7 @@ export interface Pass {
   assignedRoute: string;    // Route._id
   status: PassStatus;
   qrToken: string;
+  manualCode: string;       // e.g. "UTMS-A92KD1"
   issuedAt: string;
   expiresAt: string;
   autoRenew: boolean;
@@ -111,6 +112,7 @@ export interface Pass {
 
 // ---- VerificationLog ----
 export type VerificationResult = 'valid' | 'invalid';
+export type VerificationMethod = 'qr' | 'manual';
 export type InvalidReason = 'expired' | 'suspended' | 'wrong_bus' | 'tampered' | 'revoked' | 'not_found';
 
 export interface VerificationLog {
@@ -120,6 +122,7 @@ export interface VerificationLog {
   conductor: string;
   bus: string;
   result: VerificationResult;
+  method?: VerificationMethod;
   reason?: InvalidReason;
   scannedAt: string;
   // Joined fields
@@ -175,6 +178,10 @@ export interface ScanResult {
     name: string;
     universityId: string;
   };
+  bus?: {
+    busNumber: string;
+  };
+  expiresAt?: string;
 }
 
 // ---- Pagination ----
