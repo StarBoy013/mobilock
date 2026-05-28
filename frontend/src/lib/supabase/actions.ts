@@ -66,6 +66,20 @@ export async function submitPassApplication(routeId: string) {
       throw new Error('You already have a pending pass application.');
     }
 
+    // Block if the student already has a genuinely active pass (status=active AND not yet expired by date).
+    // We check both status AND expiry to handle stale-active passes correctly.
+    const { data: activePass } = await supabase
+      .from('passes')
+      .select('id, expiry')
+      .eq('student_id', user.id)
+      .eq('status', 'active')
+      .gt('expiry', new Date().toISOString())  // truly active: not yet expired by date
+      .maybeSingle();
+
+    if (activePass) {
+      throw new Error('You already have an active pass. Please request a renewal instead.');
+    }
+
     const { data, error } = await supabase
       .from('pass_applications')
       .insert({
@@ -74,7 +88,7 @@ export async function submitPassApplication(routeId: string) {
         status: 'pending',
       })
       .select()
-      .single();
+      .maybeSingle();  // use maybeSingle to avoid crash on constraint violation
 
     if (error) {
       console.error('Failed to submit application:', error.message);
@@ -171,7 +185,20 @@ export async function updateApplicationStatus(
 
       let passError;
       if (existingPass) {
-        // UPDATE existing record instead of inserting a duplicate
+        // UPDATE existing record.
+        // CRITICAL: QR payload must use the EXISTING row id (not a new UUID),
+        // otherwise verifyPassQR looks up passId and finds nothing → NOT_FOUND.
+        const renewPayload = {
+          passId: existingPass.id,  // use existing DB id
+          studentId: app.student_id,
+          busId,
+          exp: expiry.getTime(),
+        };
+        const renewHmac = crypto.createHmac('sha256', QR_SECRET)
+          .update(JSON.stringify(renewPayload))
+          .digest('hex');
+        const renewedQrToken = Buffer.from(JSON.stringify({ ...renewPayload, hmac: renewHmac })).toString('base64url');
+
         const { error } = await supabase
           .from('passes')
           .update({
@@ -180,13 +207,13 @@ export async function updateApplicationStatus(
             status: 'active',
             manual_code: manualCode,
             expiry: expiry.toISOString(),
-            qr_token: qrToken,
+            qr_token: renewedQrToken,  // QR built with correct existing id
             updated_at: new Date().toISOString(),
           })
           .eq('id', existingPass.id);
         passError = error;
       } else {
-        // INSERT fresh record
+        // INSERT fresh record — passId matches the new row's id
         const { error } = await supabase
           .from('passes')
           .insert({
@@ -197,7 +224,7 @@ export async function updateApplicationStatus(
             status: 'active',
             manual_code: manualCode,
             expiry: expiry.toISOString(),
-            qr_token: qrToken,
+            qr_token: qrToken,  // built with passId which equals the inserted id
           });
         passError = error;
       }
@@ -352,33 +379,65 @@ export async function verifyPassManual(manualCode: string): Promise<ScanResult> 
       }
     }
 
-    // Find the latest active pass. If none, get the latest pass overall.
+    // Pass selection priority:
+    // 1. status=active AND not yet expired by date (truly valid pass)
+    // 2. Any pass with status=active (may be stale-active; expiry check runs later)
+    // 3. Most recently updated pass (handles suspended/revoked/expired states)
     let pass: any = null;
     if (passesList.length > 0) {
-      pass = passesList.find(p => p.status?.toLowerCase() === 'active') || passesList[0];
+      const now = new Date();
+      const trulyActive = passesList.find(
+        p => p.status?.toLowerCase() === 'active' && new Date(p.expiry) > now
+      );
+      const statusActive = passesList.find(p => p.status?.toLowerCase() === 'active');
+      pass = trulyActive || statusActive || passesList[0];
+      console.log(`[verifyPassManual] Selected pass: ${pass?.id} (status=${pass?.status}, expiry=${pass?.expiry})`);
     }
 
     // Query the bus assigned to this conductor safely
     console.log(`[verifyPassManual] Querying bus for conductor: "${conductorUser.id}"`);
-    const busResponse = await supabase
-      .from('buses')
-      .select('id, bus_number')
-      .eq('conductor_id', conductorUser.id)
-      .limit(1)
+    let conductorBus;
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', conductorUser.id)
       .maybeSingle();
 
-    console.log(`[verifyPassManual] Supabase buses query response:`, {
-      data: busResponse.data,
-      error: busResponse.error,
-      status: busResponse.status,
-      statusText: busResponse.statusText,
-    });
+    if (profile?.role === 'super_admin') {
+      const busResponse = await supabase
+        .from('buses')
+        .select('id, bus_number')
+        .eq('bus_number', 'UNI-001')
+        .maybeSingle();
+      conductorBus = busResponse.data;
+    } else {
+      const busResponse = await supabase
+        .from('buses')
+        .select('id, bus_number')
+        .eq('conductor_id', conductorUser.id)
+        .limit(1)
+        .maybeSingle();
 
-    if (busResponse.error) throw busResponse.error;
-    const conductorBus = busResponse.data;
+      console.log(`[verifyPassManual] Supabase buses query response:`, {
+        data: busResponse.data,
+        error: busResponse.error,
+        status: busResponse.status,
+        statusText: busResponse.statusText,
+      });
 
-    let result: 'valid' | 'invalid' = 'invalid';
-    let reason: any = undefined;
+      if (busResponse.error) throw busResponse.error;
+      conductorBus = busResponse.data;
+    }
+
+    // Bug 3 Fix: Reject if conductor has no bus assigned
+    if (!conductorBus) {
+      return { result: 'invalid', code: 'NO_BUS_ASSIGNED', message: 'No bus is assigned to your conductor account.' };
+    }
+
+    let verificationCode: any = null;
+    let verificationMessage = '';
+    let finalResult: 'valid' | 'invalid' = 'invalid';
 
     const logEntry: any = {
       conductor_id: conductorUser.id,
@@ -387,88 +446,92 @@ export async function verifyPassManual(manualCode: string): Promise<ScanResult> 
     };
 
     if (!pass) {
-      reason = 'not_found';
+      verificationCode = 'NOT_FOUND';
+      verificationMessage = 'No pass record found for this code';
     } else {
       logEntry.pass_id = pass.id;
       const now = new Date();
       const expiresAt = new Date(pass.expiry);
       const statusNormalized = pass.status?.toLowerCase();
 
+      // Structured diagnostic log for every verification
+      console.log('[verifyPassManual] DECISION LOG:', JSON.stringify({
+        passId: pass.id,
+        storedStatus: statusNormalized,
+        expiry: pass.expiry,
+        now: now.toISOString(),
+        isExpiredByDate: now >= expiresAt,
+        conductorBusId: conductorBus.id,
+        passBusId: pass.bus_id,
+        isBusMismatch: pass.bus_id !== conductorBus.id,
+      }));
+
+      // Stage 3: Status checks (in priority order)
       if (statusNormalized === 'expired') {
-        reason = 'expired';
+        verificationCode = 'EXPIRED'; verificationMessage = 'Pass has expired';
       } else if (statusNormalized === 'suspended') {
-        reason = 'suspended';
+        verificationCode = 'SUSPENDED'; verificationMessage = 'Pass is temporarily suspended';
       } else if (statusNormalized === 'revoked') {
-        reason = 'revoked';
-      } else if (now > expiresAt) {
-        reason = 'expired';
-        // Sync expired status inside Database
-        await supabase.from('passes').update({ status: 'expired' }).eq('id', pass.id);
-      } else if (conductorBus && pass.bus_id !== conductorBus.id) {
-        reason = 'wrong_bus';
+        verificationCode = 'REVOKED'; verificationMessage = 'Pass has been permanently revoked';
+      } else if (statusNormalized === 'cancelled') {
+        verificationCode = 'CANCELLED'; verificationMessage = 'Pass has been cancelled';
+      } else if (statusNormalized === 'renewed') {
+        verificationCode = 'RENEWED'; verificationMessage = 'Pass has been renewed — use your new pass';
+      } else if (now >= expiresAt) {
+        // Expiry date check — runs even if DB status is still 'active' (handles stale status)
+        verificationCode = 'EXPIRED'; verificationMessage = 'Pass expiry date has passed';
+        // Sync DB status to avoid this branch on next scan
+        await supabase.from('passes').update({
+          status: 'expired',
+          status_updated_at: now.toISOString(),
+        }).eq('id', pass.id);
+      } else if (pass.bus_id !== conductorBus.id) {
+        // Stage 4: Bus mismatch — distinct from tampered
+        verificationCode = 'WRONG_BUS'; verificationMessage = 'Student is assigned to a different bus';
       } else {
-        result = 'valid';
+        // Stage 5: All checks passed
+        finalResult = 'valid';
+        verificationCode = 'VALID';
       }
     }
 
-    logEntry.result = result.toUpperCase();
-    logEntry.reason = reason;
+    logEntry.result = finalResult.toUpperCase();
+    logEntry.reason = verificationCode?.toLowerCase();
 
     // Insert verification log record
     await supabase.from('verification_logs').insert(logEntry);
 
-    if (result === 'invalid' || !pass) {
-      if (reason === 'wrong_bus' && pass) {
-        const studentName = (pass.profiles as any)?.name || 'Unknown';
-        const studentUniversityId = (pass.profiles as any)?.enrollment_number || 'Unknown';
+    if (finalResult === 'invalid' || !pass) {
+      if (verificationCode === 'WRONG_BUS' && pass) {
         const assignedBusNumber = (pass.buses as any)?.bus_number || 'Unknown';
-        const currentBusNumber = conductorBus?.bus_number || 'Unknown';
-
         return {
           result: 'invalid',
-          reason: 'wrong_bus',
+          code: 'WRONG_BUS',
+          message: verificationMessage,
           student: {
-            name: studentName,
-            universityId: studentUniversityId,
-          },
-          bus: {
-            busNumber: currentBusNumber,
+            name: (pass.profiles as any)?.name || 'Unknown',
+            universityId: (pass.profiles as any)?.enrollment_number || 'Unknown',
           },
           assignedBusNumber,
-          currentBusNumber
-        } as any;
+          currentBusNumber: conductorBus.bus_number,
+        };
       }
-      return { result: 'invalid', reason: reason || 'not_found' };
+      return { result: 'invalid', code: verificationCode || 'NOT_FOUND', message: verificationMessage || 'Pass not found' };
     }
 
-    const studentName = (pass.profiles as any)?.name || 'Unknown';
-    const studentUniversityId = (pass.profiles as any)?.enrollment_number || 'Unknown';
-    const busNumber = (pass.buses as any)?.bus_number || 'Unknown';
-
     return {
-      result,
+      result: 'valid',
+      code: 'VALID',
       student: {
-        name: studentName,
-        universityId: studentUniversityId,
+        name: (pass.profiles as any)?.name || 'Unknown',
+        universityId: (pass.profiles as any)?.enrollment_number || 'Unknown',
       },
-      bus: {
-        busNumber,
-      },
+      bus: { busNumber: (pass.buses as any)?.bus_number || 'Unknown' },
       expiresAt: pass.expiry,
     };
   } catch (err: any) {
     logError('verifyPassManual', err);
-
-    let friendlyMessage = err.message || 'Verification system error';
-    if (friendlyMessage.includes('duplicate key value violates constraint') || friendlyMessage.includes('passes_student_id_key')) {
-      friendlyMessage = 'Multiple active passes detected for this student';
-    }
-
-    return {
-      result: 'invalid',
-      reason: 'not_found',
-      errorMessage: friendlyMessage
-    } as any;
+    return { result: 'invalid', code: 'SYSTEM_ERROR', message: err.message || 'Verification system error' };
   }
 }
 
@@ -504,11 +567,11 @@ export async function verifyPassQR(qrToken: string): Promise<ScanResult> {
           reason: 'tampered',
           method: 'qr',
         });
-        return { result: 'invalid', reason: 'tampered' };
+        return { result: 'invalid', code: 'TAMPERED', message: 'QR signature is invalid or the code has been tampered with' };
       }
 
       // Verify signed expiry timestamp in the QR payload
-      if (rest.exp && Date.now() > rest.exp) {
+      if (rest.exp && Date.now() >= rest.exp) {
         console.error('QR Verification: Token payload expired');
         await supabase.from('verification_logs').insert({
           conductor_id: conductorUser.id,
@@ -517,7 +580,7 @@ export async function verifyPassQR(qrToken: string): Promise<ScanResult> {
           reason: 'expired',
           method: 'qr',
         });
-        return { result: 'invalid', reason: 'expired' };
+        return { result: 'invalid', code: 'EXPIRED', message: 'QR token has expired. Student needs a renewed pass.' };
       }
 
       payload = rest;
@@ -530,7 +593,7 @@ export async function verifyPassQR(qrToken: string): Promise<ScanResult> {
         reason: 'tampered',
         method: 'qr',
       });
-      return { result: 'invalid', reason: 'tampered' };
+      return { result: 'invalid', code: 'TAMPERED', message: 'Malformed QR code — could not decode' };
     }
 
     // Retrieve passes from database as array, ordering by updated_at DESC to prevent multiple rows .single() crash
@@ -569,25 +632,48 @@ export async function verifyPassQR(qrToken: string): Promise<ScanResult> {
 
     // Query the bus assigned to this conductor safely
     console.log(`[verifyPassQR] Querying bus for conductor: "${conductorUser.id}"`);
-    const busResponse = await supabase
-      .from('buses')
-      .select('id, bus_number')
-      .eq('conductor_id', conductorUser.id)
-      .limit(1)
+    let conductorBus;
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', conductorUser.id)
       .maybeSingle();
 
-    console.log(`[verifyPassQR] Supabase buses response:`, {
-      data: busResponse.data,
-      error: busResponse.error,
-      status: busResponse.status,
-      statusText: busResponse.statusText,
-    });
+    if (profile?.role === 'super_admin') {
+      const busResponse = await supabase
+        .from('buses')
+        .select('id, bus_number')
+        .eq('bus_number', 'UNI-001')
+        .maybeSingle();
+      conductorBus = busResponse.data;
+    } else {
+      const busResponse = await supabase
+        .from('buses')
+        .select('id, bus_number')
+        .eq('conductor_id', conductorUser.id)
+        .limit(1)
+        .maybeSingle();
 
-    if (busResponse.error) throw busResponse.error;
-    const conductorBus = busResponse.data;
+      console.log(`[verifyPassQR] Supabase buses response:`, {
+        data: busResponse.data,
+        error: busResponse.error,
+        status: busResponse.status,
+        statusText: busResponse.statusText,
+      });
 
-    let result: 'valid' | 'invalid' = 'invalid';
-    let reason: any = undefined;
+      if (busResponse.error) throw busResponse.error;
+      conductorBus = busResponse.data;
+    }
+
+    // Bug 3 Fix: Reject if conductor has no bus assigned
+    if (!conductorBus) {
+      return { result: 'invalid', code: 'NO_BUS_ASSIGNED', message: 'No bus is assigned to your conductor account.' };
+    }
+
+    let qrFinalResult: 'valid' | 'invalid' = 'invalid';
+    let qrCode: any = null;
+    let qrMessage = '';
 
     const logEntry: any = {
       conductor_id: conductorUser.id,
@@ -595,7 +681,8 @@ export async function verifyPassQR(qrToken: string): Promise<ScanResult> {
     };
 
     if (!pass) {
-      reason = 'not_found';
+      qrCode = 'NOT_FOUND';
+      qrMessage = 'No pass record matches this QR code';
       logEntry.manual_code_used = 'UNKNOWN_QR_ID';
     } else {
       logEntry.pass_id = pass.id;
@@ -604,80 +691,78 @@ export async function verifyPassQR(qrToken: string): Promise<ScanResult> {
       const expiresAt = new Date(pass.expiry);
       const statusNormalized = pass.status?.toLowerCase();
 
+      console.log('[verifyPassQR] DECISION LOG:', JSON.stringify({
+        passId: pass.id,
+        storedStatus: statusNormalized,
+        expiry: pass.expiry,
+        now: now.toISOString(),
+        isExpiredByDate: now >= expiresAt,
+        conductorBusId: conductorBus.id,
+        passBusId: pass.bus_id,
+        isBusMismatch: pass.bus_id !== conductorBus.id,
+      }));
+
       if (statusNormalized === 'expired') {
-        reason = 'expired';
+        qrCode = 'EXPIRED'; qrMessage = 'Pass has expired';
       } else if (statusNormalized === 'suspended') {
-        reason = 'suspended';
+        qrCode = 'SUSPENDED'; qrMessage = 'Pass is temporarily suspended';
       } else if (statusNormalized === 'revoked') {
-        reason = 'revoked';
-      } else if (now > expiresAt) {
-        reason = 'expired';
-        await supabase.from('passes').update({ status: 'expired' }).eq('id', pass.id);
-      } else if (conductorBus && pass.bus_id !== conductorBus.id) {
-        reason = 'wrong_bus';
+        qrCode = 'REVOKED'; qrMessage = 'Pass has been permanently revoked';
+      } else if (statusNormalized === 'cancelled') {
+        qrCode = 'CANCELLED'; qrMessage = 'Pass has been cancelled';
+      } else if (statusNormalized === 'renewed') {
+        qrCode = 'RENEWED'; qrMessage = 'Pass has been renewed — use your new pass';
+      } else if (now >= expiresAt) {
+        qrCode = 'EXPIRED'; qrMessage = 'Pass expiry date has passed';
+        await supabase.from('passes').update({
+          status: 'expired',
+          status_updated_at: now.toISOString(),
+        }).eq('id', pass.id);
+      } else if (pass.bus_id !== conductorBus.id) {
+        qrCode = 'WRONG_BUS'; qrMessage = 'Student is assigned to a different bus';
       } else {
-        result = 'valid';
+        qrFinalResult = 'valid';
+        qrCode = 'VALID';
       }
     }
 
-    logEntry.result = result.toUpperCase();
-    logEntry.reason = reason;
+    logEntry.result = qrFinalResult.toUpperCase();
+    logEntry.reason = qrCode?.toLowerCase();
 
     // Log verification attempt
     await supabase.from('verification_logs').insert(logEntry);
 
-    if (result === 'invalid' || !pass) {
-      if (reason === 'wrong_bus' && pass) {
-        const studentName = (pass.profiles as any)?.name || 'Unknown';
-        const studentUniversityId = (pass.profiles as any)?.enrollment_number || 'Unknown';
+    if (qrFinalResult === 'invalid' || !pass) {
+      if (qrCode === 'WRONG_BUS' && pass) {
         const assignedBusNumber = (pass.buses as any)?.bus_number || 'Unknown';
-        const currentBusNumber = conductorBus?.bus_number || 'Unknown';
-
         return {
           result: 'invalid',
-          reason: 'wrong_bus',
+          code: 'WRONG_BUS',
+          message: qrMessage,
           student: {
-            name: studentName,
-            universityId: studentUniversityId,
-          },
-          bus: {
-            busNumber: currentBusNumber,
+            name: (pass.profiles as any)?.name || 'Unknown',
+            universityId: (pass.profiles as any)?.enrollment_number || 'Unknown',
           },
           assignedBusNumber,
-          currentBusNumber
-        } as any;
+          currentBusNumber: conductorBus.bus_number,
+        };
       }
-      return { result: 'invalid', reason: reason || 'not_found' };
+      return { result: 'invalid', code: qrCode || 'NOT_FOUND', message: qrMessage || 'Pass not found' };
     }
 
-    const studentName = (pass.profiles as any)?.name || 'Unknown';
-    const studentUniversityId = (pass.profiles as any)?.enrollment_number || 'Unknown';
-    const busNumber = (pass.buses as any)?.bus_number || 'Unknown';
-
     return {
-      result,
+      result: 'valid',
+      code: 'VALID',
       student: {
-        name: studentName,
-        universityId: studentUniversityId,
+        name: (pass.profiles as any)?.name || 'Unknown',
+        universityId: (pass.profiles as any)?.enrollment_number || 'Unknown',
       },
-      bus: {
-        busNumber,
-      },
+      bus: { busNumber: (pass.buses as any)?.bus_number || 'Unknown' },
       expiresAt: pass.expiry,
     };
   } catch (err: any) {
     logError('verifyPassQR', err);
-
-    let friendlyMessage = err.message || 'Verification system error';
-    if (friendlyMessage.includes('duplicate key value violates constraint') || friendlyMessage.includes('passes_student_id_key')) {
-      friendlyMessage = 'Multiple active passes detected for this student';
-    }
-
-    return {
-      result: 'invalid',
-      reason: 'not_found',
-      errorMessage: friendlyMessage
-    } as any;
+    return { result: 'invalid', code: 'SYSTEM_ERROR', message: err.message || 'Verification system error' };
   }
 }
 
@@ -793,15 +878,23 @@ export async function updateRenewalRequestStatus(
       const newExpiry = new Date();
       newExpiry.setMonth(newExpiry.getMonth() + 6); // Extend for another 6 months
 
-      // Regenerate manual_code and qr_token on renewal approval
+      // Regenerate manual_code and qr_token on renewal approval.
+      // The passId in the QR payload MUST match pass.id (the existing DB row id).
       const newManualCode = generateManualCode();
       const crypto = await import('crypto');
       const payload = {
-        passId: pass.id,
+        passId: pass.id,          // same row id — critical for QR lookup
         studentId: pass.student_id,
-        busId: pass.bus_id,
+        busId: pass.bus_id,       // keep same bus unless admin changes it
         exp: newExpiry.getTime(),
       };
+
+      console.log('[updateRenewalRequestStatus] Renewal payload:', JSON.stringify({
+        passId: payload.passId,
+        busId: payload.busId,
+        newExpiry: newExpiry.toISOString(),
+        newManualCode,
+      }));
 
       const hmac = crypto.createHmac('sha256', QR_SECRET)
         .update(JSON.stringify(payload))
@@ -809,7 +902,8 @@ export async function updateRenewalRequestStatus(
 
       const newQrToken = Buffer.from(JSON.stringify({ ...payload, hmac })).toString('base64url');
 
-      // Update the pass validity and status, and regenerate token + manual_code
+      const now = new Date();
+      // Update the pass: reset status to active, new expiry, new QR, new manual code
       const { error: passError } = await supabase
         .from('passes')
         .update({
@@ -817,7 +911,9 @@ export async function updateRenewalRequestStatus(
           expiry: newExpiry.toISOString(),
           qr_token: newQrToken,
           manual_code: newManualCode,
-          updated_at: new Date().toISOString(),
+          status_reason: 'Renewed by admin',
+          status_updated_at: now.toISOString(),
+          updated_at: now.toISOString(),
         })
         .eq('id', pass.id);
 
@@ -825,6 +921,9 @@ export async function updateRenewalRequestStatus(
         console.error('Failed to update pass during renewal approval:', passError.message);
         throw passError;
       }
+
+      console.log('[updateRenewalRequestStatus] Pass renewed successfully. New code:', newManualCode);
+
     }
 
     return { success: true, data: req };
@@ -844,7 +943,7 @@ export async function addPassHolder(data: {
   routeId: string;
   busId: string;
   expiry: string;
-  status: 'active' | 'expired' | 'suspended' | 'revoked';
+  status: 'active' | 'expired' | 'suspended' | 'revoked' | 'cancelled' | 'renewed';
   photoUrl?: string;
 }) {
   try {

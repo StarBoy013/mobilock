@@ -160,7 +160,10 @@ export function useKpis() {
     const todayStr = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
 
     Promise.all([
-      supabase.from('passes').select('id', { count: 'exact', head: true }).eq('status', 'active'),
+      // Active passes: status=active AND expiry has not yet passed (guards against stale status)
+      supabase.from('passes').select('id', { count: 'exact', head: true })
+        .eq('status', 'active')
+        .gt('expiry', new Date().toISOString()),
       supabase.from('pass_applications').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       supabase.from('verification_logs').select('id', { count: 'exact', head: true }).gte('created_at', todayStr),
       supabase.from('verification_logs').select('id', { count: 'exact', head: true }).gte('created_at', todayStr).eq('result', 'INVALID'),
@@ -405,6 +408,8 @@ export function usePassStatusData() {
             { status: 'expired', count: counts['expired'] || 0 },
             { status: 'suspended', count: counts['suspended'] || 0 },
             { status: 'revoked', count: counts['revoked'] || 0 },
+            { status: 'cancelled', count: counts['cancelled'] || 0 },
+            { status: 'renewed', count: counts['renewed'] || 0 },
           ]);
         }
         setIsLoading(false);
@@ -551,6 +556,12 @@ export function usePasses(filters?: { status?: PassStatus; search?: string }) {
           issuedAt: p.created_at,
           expiresAt: p.expiry,
           autoRenew: false,
+          // Status audit trail
+          statusReason: (p as any).status_reason || null,
+          statusUpdatedAt: (p as any).status_updated_at || null,
+          statusUpdatedBy: (p as any).status_updated_by || null,
+          // Client-side expiry helper — independent of stored status column
+          isExpiredByDate: new Date((p as any).expiry).getTime() < Date.now(),
           studentName: (p.profiles as any)?.name || 'Unknown',
           studentUniversityId: (p.profiles as any)?.enrollment_number || 'Unknown',
           routeName: (p.routes as any)?.name || 'Unknown',

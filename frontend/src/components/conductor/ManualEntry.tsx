@@ -31,14 +31,13 @@ export default function ManualEntry({
 
     try {
       const data = await verifyPassManual(trimmed);
-      if (data.result === 'invalid' && data.errorMessage) {
-        setError(data.errorMessage);
-      } else {
-        onResult(data);
-        setCode('');
-      }
+      // Route ALL results (valid OR invalid) through onResult → shown in ScanOverlay.
+      // Only thrown exceptions (network down, server 500) land in the catch block below.
+      onResult(data);
+      setCode('');
     } catch (err: any) {
-      setError(err.message || 'Verification error. Please try again.');
+      // True system/network error — show inline message, don't dismiss the form
+      setError(err.message || 'Network or server error. Please try again.');
       console.error('Manual verification failed:', err);
     } finally {
       setLoading(false);

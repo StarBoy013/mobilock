@@ -87,7 +87,8 @@ export interface PassApplication {
 }
 
 // ---- Pass ----
-export type PassStatus = 'active' | 'expired' | 'suspended' | 'revoked';
+// All 6 canonical statuses — must match the Supabase passes_status_check constraint exactly.
+export type PassStatus = 'active' | 'expired' | 'suspended' | 'revoked' | 'cancelled' | 'renewed';
 
 export interface Pass {
   _id: string;
@@ -102,6 +103,12 @@ export interface Pass {
   expiresAt: string;
   autoRenew: boolean;
   lastScannedAt?: string;
+  // Status audit trail (from migration 002)
+  statusReason?: string;         // Human-readable reason for current status
+  statusUpdatedAt?: string;      // When the status was last changed
+  statusUpdatedBy?: string;      // Admin UUID who changed it (null = system)
+  // Computed expiry helper (derived client-side)
+  isExpiredByDate?: boolean;
   // Joined fields for display
   studentName?: string;
   studentUniversityId?: string;
@@ -114,7 +121,31 @@ export interface Pass {
 // ---- VerificationLog ----
 export type VerificationResult = 'valid' | 'invalid';
 export type VerificationMethod = 'qr' | 'manual';
-export type InvalidReason = 'expired' | 'suspended' | 'wrong_bus' | 'tampered' | 'revoked' | 'not_found';
+
+/**
+ * Semantic verification codes — maps to each Stage of the 5-stage verification pipeline.
+ * Stage 1 — QR Integrity: TAMPERED
+ * Stage 2 — Pass Existence: NOT_FOUND
+ * Stage 3 — Pass Status: EXPIRED | SUSPENDED | REVOKED | CANCELLED | RENEWED
+ * Stage 4 — Bus/Route: WRONG_BUS | NO_BUS_ASSIGNED
+ * Stage 5 — Success: VALID
+ * System: SYSTEM_ERROR
+ */
+export type VerificationCode =
+  | 'VALID'
+  | 'EXPIRED'
+  | 'SUSPENDED'
+  | 'REVOKED'
+  | 'CANCELLED'
+  | 'RENEWED'
+  | 'WRONG_BUS'
+  | 'NOT_FOUND'
+  | 'TAMPERED'
+  | 'NO_BUS_ASSIGNED'
+  | 'SYSTEM_ERROR';
+
+/** @deprecated Use VerificationCode instead. Kept for backward compat. */
+export type InvalidReason = 'expired' | 'suspended' | 'wrong_bus' | 'tampered' | 'revoked' | 'not_found' | 'cancelled' | 'renewed' | 'no_bus_assigned';
 
 export interface VerificationLog {
   _id: string;
@@ -171,20 +202,30 @@ export interface PassStatusCount {
   count: number;
 }
 
-// ---- Scan Result ----
-export interface ScanResult {
-  result: VerificationResult;
-  reason?: InvalidReason;
-  errorMessage?: string;
-  student?: {
-    name: string;
-    universityId: string;
-  };
-  bus?: {
-    busNumber: string;
-  };
-  expiresAt?: string;
+// ---- Scan Result (structured verification response) ----
+
+/** Valid pass — all 5 stages passed */
+export interface ValidScanResult {
+  result: 'valid';
+  code: 'VALID';
+  student: { name: string; universityId: string };
+  bus: { busNumber: string };
+  expiresAt: string;
 }
+
+/** Failed verification with a semantic code */
+export interface InvalidScanResult {
+  result: 'invalid';
+  code: Exclude<VerificationCode, 'VALID'>;
+  /** Human-readable message for display */
+  message: string;
+  /** Extra data for specific failure types */
+  student?: { name: string; universityId: string };
+  assignedBusNumber?: string;
+  currentBusNumber?: string;
+}
+
+export type ScanResult = ValidScanResult | InvalidScanResult;
 
 // ---- Pagination ----
 export interface PaginatedResponse<T> {

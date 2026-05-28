@@ -84,7 +84,11 @@ export default function PassesPage() {
       });
 
       if (res.success) {
-        toast.success('Pass holder added successfully');
+        const generatedEmail = `${rollNumber.toLowerCase().replace(/[^a-z0-9]/g, '_')}@utms.edu`;
+        toast.success(
+          `Pass holder added! Login: ${generatedEmail} | Password: Student@123`,
+          { duration: 8000 }
+        );
         setIsAddModalOpen(false);
         resetForm();
       } else {
@@ -138,6 +142,8 @@ export default function PassesPage() {
               <option value="expired">Expired</option>
               <option value="suspended">Suspended</option>
               <option value="revoked">Revoked</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="renewed">Renewed</option>
             </select>
           </div>
         </div>
@@ -264,6 +270,11 @@ export default function PassesPage() {
                     onChange={(e) => setRollNumber(e.target.value)}
                     className="w-full h-9 px-3 bg-bg-base border border-border-subtle rounded-lg text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/50 transition-colors"
                   />
+                  {rollNumber.trim() && (
+                    <p className="text-[10px] text-text-muted font-mono">
+                      Login email: <span className="text-primary">{rollNumber.toLowerCase().replace(/[^a-z0-9]/g, '_')}@utms.edu</span>
+                    </p>
+                  )}
                 </div>
               </div>
 

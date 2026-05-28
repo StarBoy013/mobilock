@@ -31,6 +31,8 @@ export function getStatusColor(status: PassStatus | ApplicationStatus): string {
     expired: 'text-danger', rejected: 'text-danger',
     suspended: 'text-warning', pending: 'text-warning',
     revoked: 'text-danger',
+    cancelled: 'text-danger',
+    renewed: 'text-info',
   };
   return colors[status] || 'text-text-secondary';
 }
@@ -44,8 +46,19 @@ export function getStatusBg(status: PassStatus | ApplicationStatus): string {
     suspended: 'bg-warning/10 text-warning border-warning/20',
     pending: 'bg-warning/10 text-warning border-warning/20',
     revoked: 'bg-danger/10 text-danger border-danger/20',
+    cancelled: 'bg-danger/10 text-danger border-danger/20',
+    renewed: 'bg-info/10 text-info border-info/20',
   };
   return colors[status] || '';
+}
+
+/**
+ * Returns true if the pass expiry date has passed, regardless of the stored status.
+ * Use this everywhere instead of relying solely on pass.status === 'expired'.
+ */
+export function isExpiredByDate(expiresAt: string | undefined | null): boolean {
+  if (!expiresAt) return false;
+  return new Date(expiresAt).getTime() < Date.now();
 }
 
 export function getAlertColor(severity: AlertSeverity): string {

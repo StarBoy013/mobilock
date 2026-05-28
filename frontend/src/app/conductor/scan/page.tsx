@@ -62,7 +62,7 @@ export default function ScannerPage() {
             setScanResult(result);
           } catch (err: any) {
             console.error('QR code verification failed:', err);
-            setScanResult({ result: 'invalid', reason: 'tampered' });
+            setScanResult({ result: 'invalid', code: 'TAMPERED', message: 'QR decoding or server error. Try again.' });
           } finally {
             setIsVerifying(false);
           }
@@ -108,7 +108,7 @@ export default function ScannerPage() {
       toast.success('Verification completed');
     } catch (err: any) {
       console.error('Verification error:', err);
-      setScanResult({ result: 'invalid', reason: 'tampered' });
+      setScanResult({ result: 'invalid', code: 'TAMPERED', message: 'QR decoding or server error. Try again.' });
       toast.error('Verification failed');
     } finally {
       setIsVerifying(false);

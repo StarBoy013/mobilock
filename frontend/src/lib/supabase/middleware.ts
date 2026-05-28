@@ -67,7 +67,7 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    if (path.startsWith('/student') && role !== 'student') {
+    if (path.startsWith('/student') && role !== 'student' && role !== 'super_admin') {
       if (isAction) {
         return new NextResponse(JSON.stringify({ error: 'Forbidden' }), {
           status: 403,
@@ -79,7 +79,7 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    if (path.startsWith('/conductor') && role !== 'conductor') {
+    if (path.startsWith('/conductor') && role !== 'conductor' && role !== 'super_admin') {
       if (isAction) {
         return new NextResponse(JSON.stringify({ error: 'Forbidden' }), {
           status: 403,

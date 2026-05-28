@@ -23,6 +23,9 @@
 # misc
 .DS_Store
 *.pem
+*.docx
+*.txt
+*.log
 
 # debug
 npm-debug.log*
@@ -35,7 +38,28 @@ yarn-error.log*
 
 # vercel
 .vercel
+.turbo/
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# VS Code & IDEs
+.vscode/
+.idea/
+
+# test scripts, audit scripts, diagnostic scripts
+test-*.mjs
+test-*.js
+audit-*.mjs
+check-*.mjs
+check-*.js
+probe-*.mjs
+e2e-*
+seed-*.mjs
+run-migration.mjs
+apply-schema-upgrade.mjs
+migration-ready-to-run.sql
+supabase/cleanup-auth.sql
+AGENTS.md
+CLAUDE.md
