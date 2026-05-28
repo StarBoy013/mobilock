@@ -15,6 +15,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
+// ─── Config per verification code ─────────────────────────────────────────────
 interface CodeConfig {
   label: string;
   sublabel: string;
@@ -118,6 +119,7 @@ const CODE_CONFIG: Record<Exclude<VerificationCode, 'VALID'>, CodeConfig> = {
   },
 };
 
+// ─── Component ─────────────────────────────────────────────────────────────────
 export default function ScanOverlay({
   result,
   onDismiss,
@@ -127,6 +129,7 @@ export default function ScanOverlay({
 }) {
   const isValid = result.result === 'valid';
 
+  // Auto-dismiss: 4s for valid, 5s for invalid (more time to read failure reason)
   useEffect(() => {
     const timer = setTimeout(onDismiss, isValid ? 4000 : 5000);
     return () => clearTimeout(timer);
@@ -153,6 +156,7 @@ export default function ScanOverlay({
     );
   }
 
+  // Invalid result
   const code = result.code;
   const config = CODE_CONFIG[code] || CODE_CONFIG.SYSTEM_ERROR;
   const { Icon } = config;
@@ -168,10 +172,12 @@ export default function ScanOverlay({
         <h2 className={`text-2xl font-bold mb-1 ${config.iconColor}`}>{config.label}</h2>
         <p className="text-sm text-text-muted mb-4">{config.sublabel}</p>
 
+        {/* Semantic badge */}
         <span className={`text-[10px] font-mono font-semibold px-3 py-1 rounded-full uppercase tracking-widest ${config.badgeClass}`}>
           {code}
         </span>
 
+        {/* Wrong-bus detail panel */}
         {code === 'WRONG_BUS' && result.assignedBusNumber && (
           <div className="w-full mt-5 bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 text-xs font-mono space-y-1.5 text-text-secondary text-left">
             <p className="flex justify-between">
@@ -185,6 +191,7 @@ export default function ScanOverlay({
           </div>
         )}
 
+        {/* Student info if available for suspended/revoked etc. */}
         {result.student && code !== 'WRONG_BUS' && (
           <div className="mt-4 text-center">
             <p className="text-sm font-medium text-text-primary">{result.student.name}</p>
@@ -192,6 +199,7 @@ export default function ScanOverlay({
           </div>
         )}
 
+        {/* Custom message */}
         <p className="text-xs text-text-muted mt-4 leading-relaxed">{result.message}</p>
       </div>
     </div>

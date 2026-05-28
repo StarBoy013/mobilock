@@ -8,6 +8,7 @@ import path from 'path';
 
 const QR_SECRET = process.env.QR_SECRET || 'super_secret_qr_token_signing_key_change_in_production';
 
+// Helper to write logs to server-error.log
 function logError(actionName: string, error: any) {
   try {
     const logFilePath = path.join(process.cwd(), 'server-error.log');
@@ -33,6 +34,7 @@ function createAdminClient() {
   );
 }
 
+// Helper to generate a unique manual alphanumeric verification code
 function generateManualCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let result = '';
@@ -42,13 +44,17 @@ function generateManualCode() {
   return `UTMS-${result}`;
 }
 
+/**
+ * Student submits a new pass application
+ */
 export async function submitPassApplication(routeId: string) {
   try {
     const supabase = await createClient();
-
+    
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Unauthenticated');
 
+    // Check if a pending application already exists for this student
     const { data: existing } = await supabase
       .from('pass_applications')
       .select('id')
@@ -60,12 +66,14 @@ export async function submitPassApplication(routeId: string) {
       throw new Error('You already have a pending pass application.');
     }
 
+    // Block if the student already has a genuinely active pass (status=active AND not yet expired by date).
+    // We check both status AND expiry to handle stale-active passes correctly.
     const { data: activePass } = await supabase
       .from('passes')
       .select('id, expiry')
       .eq('student_id', user.id)
       .eq('status', 'active')
-      .gt('expiry', new Date().toISOString())
+      .gt('expiry', new Date().toISOString())  // truly active: not yet expired by date
       .maybeSingle();
 
     if (activePass) {
@@ -80,13 +88,13 @@ export async function submitPassApplication(routeId: string) {
         status: 'pending',
       })
       .select()
-      .maybeSingle();
+      .maybeSingle();  // use maybeSingle to avoid crash on constraint violation
 
     if (error) {
       console.error('Failed to submit application:', error.message);
       throw error;
     }
-
+    
     return { success: true, data };
   } catch (err: any) {
     logError('submitPassApplication', err);
@@ -94,6 +102,10 @@ export async function submitPassApplication(routeId: string) {
   }
 }
 
+/**
+ * Admin updates application status (Approves/Rejects)
+ * If status is 'approved', it atomically issues a dynamic Pass record with a signed QR token.
+ */
 export async function updateApplicationStatus(
   applicationId: string,
   status: 'approved' | 'rejected',
@@ -104,9 +116,10 @@ export async function updateApplicationStatus(
   try {
     const supabase = await createClient();
 
+    // Enforce role permission check
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Unauthenticated');
-
+    
     const { data: profile, error: profileErr } = await supabase
       .from('profiles')
       .select('role')
@@ -118,6 +131,7 @@ export async function updateApplicationStatus(
       throw new Error('Forbidden: Insufficient permissions');
     }
 
+    // Update application status
     const { data: app, error: appError } = await supabase
       .from('pass_applications')
       .update({
@@ -141,11 +155,12 @@ export async function updateApplicationStatus(
 
       const manualCode = generateManualCode();
       const expiry = new Date();
-      expiry.setMonth(expiry.getMonth() + 6);
+      expiry.setMonth(expiry.getMonth() + 6); // 6 months validity
 
       const crypto = await import('crypto');
       const passId = crypto.randomUUID();
-
+      
+      // Create HMAC-signed QR token payload
       const payload = {
         passId,
         studentId: app.student_id,
@@ -159,6 +174,7 @@ export async function updateApplicationStatus(
 
       const qrToken = Buffer.from(JSON.stringify({ ...payload, hmac })).toString('base64url');
 
+      // Check if a pass already exists for the student
       const { data: existingPass, error: checkError } = await supabase
         .from('passes')
         .select('id')
@@ -169,11 +185,11 @@ export async function updateApplicationStatus(
 
       let passError;
       if (existingPass) {
-
+        // UPDATE existing record.
         // CRITICAL: QR payload must use the EXISTING row id (not a new UUID),
-
+        // otherwise verifyPassQR looks up passId and finds nothing → NOT_FOUND.
         const renewPayload = {
-          passId: existingPass.id,
+          passId: existingPass.id,  // use existing DB id
           studentId: app.student_id,
           busId,
           exp: expiry.getTime(),
@@ -191,13 +207,13 @@ export async function updateApplicationStatus(
             status: 'active',
             manual_code: manualCode,
             expiry: expiry.toISOString(),
-            qr_token: renewedQrToken,
+            qr_token: renewedQrToken,  // QR built with correct existing id
             updated_at: new Date().toISOString(),
           })
           .eq('id', existingPass.id);
         passError = error;
       } else {
-
+        // INSERT fresh record — passId matches the new row's id
         const { error } = await supabase
           .from('passes')
           .insert({
@@ -208,7 +224,7 @@ export async function updateApplicationStatus(
             status: 'active',
             manual_code: manualCode,
             expiry: expiry.toISOString(),
-            qr_token: qrToken,
+            qr_token: qrToken,  // built with passId which equals the inserted id
           });
         passError = error;
       }
@@ -226,6 +242,10 @@ export async function updateApplicationStatus(
   }
 }
 
+/**
+ * Conductor verifies student pass manual code
+ * Inspects validity status, expires logs, checks conductor bus assignment, and inserts audit logs.
+ */
 export async function verifyPassManual(manualCode: string): Promise<ScanResult> {
   try {
     const supabase = await createClient();
@@ -234,18 +254,22 @@ export async function verifyPassManual(manualCode: string): Promise<ScanResult> 
     if (!conductorUser) throw new Error('Unauthenticated');
 
     const normalized = manualCode.trim().toUpperCase();
-
+    
+    // Log inputs
     console.log(`[verifyPassManual] Raw Input: "${manualCode}"`);
     console.log(`[verifyPassManual] Normalized Input: "${normalized}"`);
 
+    // Normalize manual code format (prepend UTMS- if omitted by conductor)
     let queryValue = normalized;
     if (normalized.length === 6 && !normalized.startsWith('UTMS-')) {
       queryValue = `UTMS-${normalized}`;
     }
     console.log(`[verifyPassManual] Final Query Value: "${queryValue}"`);
 
+    // Query passes as an array, ordering by updated_at DESC to prevent multiple rows .single() crash
     let passesList: any[] = [];
 
+    // 1. Check if the input is a UUID (Pass ID)
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalized);
     if (isUuid) {
       console.log(`[verifyPassManual] Querying passes by ID (UUID): "${normalized}"`);
@@ -264,7 +288,7 @@ export async function verifyPassManual(manualCode: string): Promise<ScanResult> 
         `)
         .eq('id', normalized)
         .order('updated_at', { ascending: false });
-
+        
       console.log(`[verifyPassManual] Supabase UUID query response:`, {
         data: response.data,
         error: response.error,
@@ -276,6 +300,7 @@ export async function verifyPassManual(manualCode: string): Promise<ScanResult> 
       if (response.data) passesList = response.data;
     }
 
+    // 2. Try by manual_code
     if (passesList.length === 0) {
       console.log(`[verifyPassManual] Querying passes by manual_code: "${queryValue}"`);
       const response = await supabase
@@ -305,6 +330,7 @@ export async function verifyPassManual(manualCode: string): Promise<ScanResult> 
       if (response.data) passesList = response.data;
     }
 
+    // 3. Try by student enrollment_number (Roll Number)
     if (passesList.length === 0) {
       console.log(`[verifyPassManual] Querying profiles by enrollment_number: "${normalized}"`);
       const profileResponse = await supabase
@@ -353,6 +379,10 @@ export async function verifyPassManual(manualCode: string): Promise<ScanResult> 
       }
     }
 
+    // Pass selection priority:
+    // 1. status=active AND not yet expired by date (truly valid pass)
+    // 2. Any pass with status=active (may be stale-active; expiry check runs later)
+    // 3. Most recently updated pass (handles suspended/revoked/expired states)
     let pass: any = null;
     if (passesList.length > 0) {
       const now = new Date();
@@ -364,6 +394,7 @@ export async function verifyPassManual(manualCode: string): Promise<ScanResult> 
       console.log(`[verifyPassManual] Selected pass: ${pass?.id} (status=${pass?.status}, expiry=${pass?.expiry})`);
     }
 
+    // Query the bus assigned to this conductor safely
     console.log(`[verifyPassManual] Querying bus for conductor: "${conductorUser.id}"`);
     let conductorBus;
 
@@ -423,6 +454,7 @@ export async function verifyPassManual(manualCode: string): Promise<ScanResult> 
       const expiresAt = new Date(pass.expiry);
       const statusNormalized = pass.status?.toLowerCase();
 
+      // Structured diagnostic log for every verification
       console.log('[verifyPassManual] DECISION LOG:', JSON.stringify({
         passId: pass.id,
         storedStatus: statusNormalized,
@@ -434,6 +466,7 @@ export async function verifyPassManual(manualCode: string): Promise<ScanResult> 
         isBusMismatch: pass.bus_id !== conductorBus.id,
       }));
 
+      // Stage 3: Status checks (in priority order)
       if (statusNormalized === 'expired') {
         verificationCode = 'EXPIRED'; verificationMessage = 'Pass has expired';
       } else if (statusNormalized === 'suspended') {
@@ -445,18 +478,18 @@ export async function verifyPassManual(manualCode: string): Promise<ScanResult> 
       } else if (statusNormalized === 'renewed') {
         verificationCode = 'RENEWED'; verificationMessage = 'Pass has been renewed — use your new pass';
       } else if (now >= expiresAt) {
-
+        // Expiry date check — runs even if DB status is still 'active' (handles stale status)
         verificationCode = 'EXPIRED'; verificationMessage = 'Pass expiry date has passed';
-
+        // Sync DB status to avoid this branch on next scan
         await supabase.from('passes').update({
           status: 'expired',
           status_updated_at: now.toISOString(),
         }).eq('id', pass.id);
       } else if (pass.bus_id !== conductorBus.id) {
-
+        // Stage 4: Bus mismatch — distinct from tampered
         verificationCode = 'WRONG_BUS'; verificationMessage = 'Student is assigned to a different bus';
       } else {
-
+        // Stage 5: All checks passed
         finalResult = 'valid';
         verificationCode = 'VALID';
       }
@@ -465,6 +498,7 @@ export async function verifyPassManual(manualCode: string): Promise<ScanResult> 
     logEntry.result = finalResult.toUpperCase();
     logEntry.reason = verificationCode?.toLowerCase();
 
+    // Insert verification log record
     await supabase.from('verification_logs').insert(logEntry);
 
     if (finalResult === 'invalid' || !pass) {
@@ -501,6 +535,10 @@ export async function verifyPassManual(manualCode: string): Promise<ScanResult> 
   }
 }
 
+/**
+ * Conductor verifies student pass QR token
+ * Decodes base64 payload, checks HMAC signature, validates expiry and status.
+ */
 export async function verifyPassQR(qrToken: string): Promise<ScanResult> {
   try {
     const supabase = await createClient();
@@ -514,6 +552,7 @@ export async function verifyPassQR(qrToken: string): Promise<ScanResult> {
       const parsed = JSON.parse(decoded);
       const { hmac, ...rest } = parsed;
 
+      // Verify HMAC signature
       const crypto = await import('crypto');
       const computedHmac = crypto.createHmac('sha256', QR_SECRET)
         .update(JSON.stringify(rest))
@@ -531,6 +570,7 @@ export async function verifyPassQR(qrToken: string): Promise<ScanResult> {
         return { result: 'invalid', code: 'TAMPERED', message: 'QR signature is invalid or the code has been tampered with' };
       }
 
+      // Verify signed expiry timestamp in the QR payload
       if (rest.exp && Date.now() >= rest.exp) {
         console.error('QR Verification: Token payload expired');
         await supabase.from('verification_logs').insert({
@@ -556,6 +596,7 @@ export async function verifyPassQR(qrToken: string): Promise<ScanResult> {
       return { result: 'invalid', code: 'TAMPERED', message: 'Malformed QR code — could not decode' };
     }
 
+    // Retrieve passes from database as array, ordering by updated_at DESC to prevent multiple rows .single() crash
     console.log(`[verifyPassQR] Querying passes by ID: "${payload.passId}"`);
     const passResponse = await supabase
       .from('passes')
@@ -583,11 +624,13 @@ export async function verifyPassQR(qrToken: string): Promise<ScanResult> {
     if (passResponse.error) throw passResponse.error;
     const passes = passResponse.data;
 
+    // Find the latest active pass. If none, get the latest pass overall.
     let pass: any = null;
     if (passes && passes.length > 0) {
       pass = passes.find(p => p.status?.toLowerCase() === 'active') || passes[0];
     }
 
+    // Query the bus assigned to this conductor safely
     console.log(`[verifyPassQR] Querying bus for conductor: "${conductorUser.id}"`);
     let conductorBus;
 
@@ -686,6 +729,7 @@ export async function verifyPassQR(qrToken: string): Promise<ScanResult> {
     logEntry.result = qrFinalResult.toUpperCase();
     logEntry.reason = qrCode?.toLowerCase();
 
+    // Log verification attempt
     await supabase.from('verification_logs').insert(logEntry);
 
     if (qrFinalResult === 'invalid' || !pass) {
@@ -722,6 +766,9 @@ export async function verifyPassQR(qrToken: string): Promise<ScanResult> {
   }
 }
 
+/**
+ * Student requests a pass renewal before or after expiry
+ */
 export async function requestPassRenewal(passId: string) {
   try {
     const supabase = await createClient();
@@ -729,6 +776,7 @@ export async function requestPassRenewal(passId: string) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Unauthenticated');
 
+    // Verify pass belongs to student (replace fragile .single() with .maybeSingle())
     const { data: pass, error: passErr } = await supabase
       .from('passes')
       .select('id, student_id')
@@ -739,6 +787,7 @@ export async function requestPassRenewal(passId: string) {
     if (passErr) throw passErr;
     if (!pass) throw new Error('Pass not found or access denied');
 
+    // Verify no pending renewal request exists
     const { data: existing, error: existingErr } = await supabase
       .from('renewal_requests')
       .select('id')
@@ -771,6 +820,9 @@ export async function requestPassRenewal(passId: string) {
   }
 }
 
+/**
+ * Admin approves/rejects renewal requests
+ */
 export async function updateRenewalRequestStatus(
   requestId: string,
   status: 'approved' | 'rejected',
@@ -779,6 +831,7 @@ export async function updateRenewalRequestStatus(
   try {
     const supabase = await createClient();
 
+    // Enforce role permission check
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Unauthenticated');
 
@@ -793,6 +846,7 @@ export async function updateRenewalRequestStatus(
       throw new Error('Forbidden: Insufficient permissions');
     }
 
+    // Update request status
     const { data: req, error: reqError } = await supabase
       .from('renewal_requests')
       .update({
@@ -811,7 +865,7 @@ export async function updateRenewalRequestStatus(
     if (!req) throw new Error('Renewal request not found');
 
     if (status === 'approved') {
-
+      // Get corresponding pass details
       const { data: pass, error: passFetchErr } = await supabase
         .from('passes')
         .select('*')
@@ -822,14 +876,16 @@ export async function updateRenewalRequestStatus(
       if (!pass) throw new Error('Associated pass not found');
 
       const newExpiry = new Date();
-      newExpiry.setMonth(newExpiry.getMonth() + 6);
+      newExpiry.setMonth(newExpiry.getMonth() + 6); // Extend for another 6 months
 
+      // Regenerate manual_code and qr_token on renewal approval.
+      // The passId in the QR payload MUST match pass.id (the existing DB row id).
       const newManualCode = generateManualCode();
       const crypto = await import('crypto');
       const payload = {
-        passId: pass.id,
+        passId: pass.id,          // same row id — critical for QR lookup
         studentId: pass.student_id,
-        busId: pass.bus_id,
+        busId: pass.bus_id,       // keep same bus unless admin changes it
         exp: newExpiry.getTime(),
       };
 
@@ -847,7 +903,7 @@ export async function updateRenewalRequestStatus(
       const newQrToken = Buffer.from(JSON.stringify({ ...payload, hmac })).toString('base64url');
 
       const now = new Date();
-
+      // Update the pass: reset status to active, new expiry, new QR, new manual code
       const { error: passError } = await supabase
         .from('passes')
         .update({
@@ -877,6 +933,9 @@ export async function updateRenewalRequestStatus(
   }
 }
 
+/**
+ * Admin adds a new pass holder directly
+ */
 export async function addPassHolder(data: {
   name: string;
   rollNumber: string;
@@ -890,6 +949,7 @@ export async function addPassHolder(data: {
   try {
     const supabase = await createClient();
 
+    // Check permissions
     const { data: { user: adminUser } } = await supabase.auth.getUser();
     if (!adminUser) throw new Error('Unauthenticated');
 
@@ -906,10 +966,12 @@ export async function addPassHolder(data: {
 
     const { name, rollNumber, department, routeId, busId, expiry, status, photoUrl } = data;
 
+    // Generate unique email based on roll number
     const email = `${rollNumber.toLowerCase().replace(/[^a-z0-9]/g, '_')}@utms.edu`;
 
     const adminClient = createAdminClient();
 
+    // Create the student user in Auth
     const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
       email,
       password: 'Student@123',
@@ -930,6 +992,7 @@ export async function addPassHolder(data: {
 
     const studentId = authData.user.id;
 
+    // Insert an approved pass application
     const { error: appError } = await adminClient
       .from('pass_applications')
       .insert({
@@ -944,10 +1007,12 @@ export async function addPassHolder(data: {
       throw appError;
     }
 
+    // Generate Pass credentials
     const manualCode = generateManualCode();
     const crypto = await import('crypto');
     const passId = crypto.randomUUID();
 
+    // Create HMAC-signed QR token payload
     const payload = {
       passId,
       studentId,
@@ -961,6 +1026,7 @@ export async function addPassHolder(data: {
 
     const qrToken = Buffer.from(JSON.stringify({ ...payload, hmac })).toString('base64url');
 
+    // Check if a pass already exists for this student
     const { data: existingPass, error: checkError } = await adminClient
       .from('passes')
       .select('id')
@@ -973,7 +1039,7 @@ export async function addPassHolder(data: {
     let passError;
 
     if (existingPass) {
-
+      // UPDATE existing record instead of inserting a duplicate
       const { data, error } = await adminClient
         .from('passes')
         .update({
@@ -991,7 +1057,7 @@ export async function addPassHolder(data: {
       passData = data;
       passError = error;
     } else {
-
+      // INSERT new record
       const { data, error } = await adminClient
         .from('passes')
         .insert({
@@ -1021,3 +1087,4 @@ export async function addPassHolder(data: {
     return { success: false, error: err.message || 'Failed to add pass holder' };
   }
 }
+

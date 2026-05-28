@@ -11,15 +11,16 @@ import { toast } from 'sonner';
 export default function PassesPage() {
   const [statusFilter, setStatusFilter] = useState<PassStatus | ''>('');
   const [search, setSearch] = useState('');
-
-  const { data: passes } = usePasses({
-    status: statusFilter || undefined,
-    search
+  
+  const { data: passes } = usePasses({ 
+    status: statusFilter || undefined, 
+    search 
   });
 
   const { data: routes } = useRoutes();
   const { data: buses } = useBuses();
 
+  // Modal form state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [name, setName] = useState('');
   const [rollNumber, setRollNumber] = useState('');
@@ -116,6 +117,7 @@ export default function PassesPage() {
       </div>
 
       <div className="bg-bg-surface border border-border-subtle rounded-xl flex flex-col h-[calc(100vh-10rem)]">
+        {/* Toolbar */}
         <div className="p-4 border-b border-border-subtle flex items-center justify-between gap-4 shrink-0">
           <div className="relative w-72">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
@@ -127,10 +129,10 @@ export default function PassesPage() {
               className="w-full h-8 pl-9 pr-4 bg-bg-base border border-border-subtle rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/50 transition-colors"
             />
           </div>
-
+          
           <div className="flex items-center gap-2">
             <Filter size={14} className="text-text-muted" />
-            <select
+            <select 
               value={statusFilter}
               onChange={e => setStatusFilter(e.target.value as PassStatus | '')}
               className="h-8 pl-2 pr-6 bg-bg-base border border-border-subtle rounded-md text-xs text-text-primary focus:outline-none focus:border-primary/50 cursor-pointer appearance-none"
@@ -146,6 +148,7 @@ export default function PassesPage() {
           </div>
         </div>
 
+        {/* Table */}
         <div className="flex-1 overflow-y-auto">
           <table className="w-full">
             <thead className="sticky top-0 bg-bg-surface border-b border-border-subtle z-10">
@@ -219,9 +222,11 @@ export default function PassesPage() {
         </div>
       </div>
 
+      {/* Add Pass Holder Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-bg-surface border border-border-subtle rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-slide-in">
+            {/* Header */}
             <div className="p-4 border-b border-border-subtle flex items-center justify-between shrink-0 bg-bg-surface/50 backdrop-blur">
               <div>
                 <h3 className="text-sm font-bold text-text-primary">Add Pass Holder</h3>
@@ -238,8 +243,10 @@ export default function PassesPage() {
               </button>
             </div>
 
+            {/* Form Body */}
             <form onSubmit={handleAddPassHolderSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Name */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-semibold text-text-secondary">Student Name</label>
                   <input
@@ -252,6 +259,7 @@ export default function PassesPage() {
                   />
                 </div>
 
+                {/* Roll Number */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-semibold text-text-secondary">Roll Number (Unique ID)</label>
                   <input
@@ -271,6 +279,7 @@ export default function PassesPage() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Department */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-semibold text-text-secondary">Department</label>
                   <input
@@ -283,6 +292,7 @@ export default function PassesPage() {
                   />
                 </div>
 
+                {/* Pass Validity Expiry */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-semibold text-text-secondary">Pass Validity Expiry</label>
                   <input
@@ -296,6 +306,7 @@ export default function PassesPage() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Route Dropdown */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-semibold text-text-secondary">Assign Route</label>
                   <select
@@ -311,6 +322,7 @@ export default function PassesPage() {
                   </select>
                 </div>
 
+                {/* Bus Dropdown */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-semibold text-text-secondary">Assign Bus</label>
                   <select
@@ -328,6 +340,7 @@ export default function PassesPage() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Status */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-semibold text-text-secondary">Pass Status</label>
                   <select
@@ -342,6 +355,7 @@ export default function PassesPage() {
                   </select>
                 </div>
 
+                {/* Simulated photo upload */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-semibold text-text-secondary flex items-center gap-1">
                     Student Photo Upload
@@ -365,6 +379,7 @@ export default function PassesPage() {
                 </div>
               </div>
 
+              {/* Action Buttons */}
               <div className="pt-4 border-t border-border-subtle flex justify-end gap-3 shrink-0 bg-bg-surface/50 backdrop-blur">
                 <button
                   type="button"

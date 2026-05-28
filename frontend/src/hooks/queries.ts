@@ -1,14 +1,15 @@
-
+// Service hooks — abstraction layer between UI and Supabase client
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type {
+import type { 
   Bus, BusRoute, PassApplication, Pass, VerificationLog,
-  KpiData, SystemAlert, ScanVolumePoint, OccupancyPoint, PassStatusCount,
+  KpiData, SystemAlert, ScanVolumePoint, OccupancyPoint, PassStatusCount, 
   ApplicationStatus, PassStatus
 } from '@/types';
 
+// Shared helper: creates a supabase client singleton per browser tab
 const getSupabase = (() => {
   let instance: ReturnType<typeof createClient> | null = null;
   return () => {
@@ -17,6 +18,9 @@ const getSupabase = (() => {
   };
 })();
 
+/**
+ * Hook to retrieve all buses with their assigned route names
+ */
 export function useBuses() {
   const [data, setData] = useState<Bus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -82,6 +86,9 @@ export function useBuses() {
   return { data, isLoading, error: null, refetch: fetchData };
 }
 
+/**
+ * Hook to retrieve all bus routes and their stops
+ */
 export function useRoutes() {
   const [data, setData] = useState<BusRoute[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -141,6 +148,9 @@ export function useRoutes() {
   return { data, isLoading, error: null, refetch: fetchData };
 }
 
+/**
+ * Hook to calculate Super Admin dashboard KPI summaries dynamically
+ */
 export function useKpis() {
   const [data, setData] = useState<KpiData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -150,7 +160,7 @@ export function useKpis() {
     const todayStr = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
 
     Promise.all([
-
+      // Active passes: status=active AND expiry has not yet passed (guards against stale status)
       supabase.from('passes').select('id', { count: 'exact', head: true })
         .eq('status', 'active')
         .gt('expiry', new Date().toISOString()),
@@ -198,6 +208,9 @@ export function useKpis() {
   return { data, isLoading, error: null, refetch: fetchData };
 }
 
+/**
+ * Hook to retrieve active system-wide notifications (alerts panel)
+ */
 export function useAlerts() {
   const [data, setData] = useState<SystemAlert[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -207,7 +220,7 @@ export function useAlerts() {
     supabase
       .from('notifications')
       .select('*')
-      .is('user_id', null)
+      .is('user_id', null) // Global system alerts
       .order('created_at', { ascending: false })
       .limit(10)
       .then(({ data: alerts, error }) => {
@@ -248,6 +261,9 @@ export function useAlerts() {
   return { data, isLoading, error: null, refetch: fetchData };
 }
 
+/**
+ * Hook to query historical verification log statistics grouped by day
+ */
 export function useScanVolume() {
   const [data, setData] = useState<ScanVolumePoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -265,7 +281,7 @@ export function useScanVolume() {
         if (error) {
           console.error('Failed to fetch scan volumes:', error.message);
         } else if (logs) {
-
+          // Initialize last 7 days keys
           const groups: { [key: string]: { scans: number; validScans: number } } = {};
           for (let i = 6; i >= 0; i--) {
             const d = new Date();
@@ -318,6 +334,9 @@ export function useScanVolume() {
   return { data, isLoading, error: null };
 }
 
+/**
+ * Hook to retrieve active bus capacity and current occupancy metrics
+ */
 export function useOccupancy() {
   const [data, setData] = useState<OccupancyPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -364,6 +383,9 @@ export function useOccupancy() {
   return { data, isLoading, error: null };
 }
 
+/**
+ * Hook to calculate pass status metrics count directly from Database
+ */
 export function usePassStatusData() {
   const [data, setData] = useState<PassStatusCount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -416,6 +438,9 @@ export function usePassStatusData() {
   return { data, isLoading, error: null };
 }
 
+/**
+ * Hook to list all student pass applications
+ */
 export function useApplications(filters?: { status?: ApplicationStatus; search?: string }) {
   const [data, setData] = useState<PassApplication[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -493,6 +518,9 @@ export function useApplications(filters?: { status?: ApplicationStatus; search?:
   return { data, isLoading, error: null, total: data.length };
 }
 
+/**
+ * Hook to retrieve all passes
+ */
 export function usePasses(filters?: { status?: PassStatus; search?: string }) {
   const [data, setData] = useState<Pass[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -528,11 +556,11 @@ export function usePasses(filters?: { status?: PassStatus; search?: string }) {
           issuedAt: p.created_at,
           expiresAt: p.expiry,
           autoRenew: false,
-
+          // Status audit trail
           statusReason: (p as any).status_reason || null,
           statusUpdatedAt: (p as any).status_updated_at || null,
           statusUpdatedBy: (p as any).status_updated_by || null,
-
+          // Client-side expiry helper — independent of stored status column
           isExpiredByDate: new Date((p as any).expiry).getTime() < Date.now(),
           studentName: (p.profiles as any)?.name || 'Unknown',
           studentUniversityId: (p.profiles as any)?.enrollment_number || 'Unknown',
@@ -580,6 +608,9 @@ export function usePasses(filters?: { status?: PassStatus; search?: string }) {
   return { data, isLoading, error: null };
 }
 
+/**
+ * Hook to retrieve the current active pass of the logged-in student
+ */
 export function useMyPass(studentId: string) {
   const [data, setData] = useState<Pass | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -655,6 +686,9 @@ export function useMyPass(studentId: string) {
   return { data, isLoading, error: null };
 }
 
+/**
+ * Hook to retrieve the latest application of the logged-in student
+ */
 export function useMyApplication(studentId: string) {
   const [data, setData] = useState<PassApplication | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -727,6 +761,9 @@ export function useMyApplication(studentId: string) {
   return { data, isLoading, error: null };
 }
 
+/**
+ * Hook to retrieve verification history logs for a specific student's pass
+ */
 export function useScanHistory(studentId: string) {
   const [data, setData] = useState<VerificationLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -801,6 +838,9 @@ export function useScanHistory(studentId: string) {
   return { data, isLoading, error: null };
 }
 
+/**
+ * Hook to list pass renewal requests for Admin Moderation
+ */
 export function useRenewalRequests(filters?: { status?: string }) {
   const [data, setData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -869,6 +909,9 @@ export function useRenewalRequests(filters?: { status?: string }) {
   return { data, isLoading, error: null, total: data.length };
 }
 
+/**
+ * Hook to retrieve the latest renewal request of a student pass
+ */
 export function useMyRenewalRequest(passId: string) {
   const [data, setData] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);

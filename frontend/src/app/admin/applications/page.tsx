@@ -15,17 +15,20 @@ export default function ApplicationsPage() {
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   const [selectedRenewalId, setSelectedRenewalId] = useState<string | null>(null);
 
+  // Fetch pending counts for badges
   const { data: pendingApps } = useApplications({ status: 'pending' });
   const { data: pendingRenewals } = useRenewalRequests({ status: 'pending' });
 
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col space-y-4">
+      {/* Header & Sub-navigation */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between shrink-0 gap-3">
         <div>
           <h1 className="text-xl font-bold text-text-primary">Operations Moderation</h1>
           <p className="text-xs text-text-muted mt-0.5">Review student pass applications and extension requests</p>
         </div>
 
+        {/* Tab Buttons */}
         <div className="flex bg-bg-surface border border-border-subtle p-1 rounded-xl w-fit">
           <button
             onClick={() => {
@@ -49,7 +52,7 @@ export default function ApplicationsPage() {
               </span>
             )}
           </button>
-
+          
           <button
             onClick={() => {
               setActiveTab('renewals');
@@ -77,17 +80,19 @@ export default function ApplicationsPage() {
 
       {activeTab === 'applications' ? (
         <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-6">
+          {/* Table Panel */}
           <div className="bg-bg-surface border border-border-subtle rounded-xl overflow-hidden flex flex-col">
-            <ApplicationTable
-              selectedId={selectedAppId}
-              onSelect={setSelectedAppId}
+            <ApplicationTable 
+              selectedId={selectedAppId} 
+              onSelect={setSelectedAppId} 
             />
           </div>
 
+          {/* Detail Panel */}
           {selectedAppId ? (
-            <ApplicationDetail
-              applicationId={selectedAppId}
-              onClose={() => setSelectedAppId(null)}
+            <ApplicationDetail 
+              applicationId={selectedAppId} 
+              onClose={() => setSelectedAppId(null)} 
             />
           ) : (
             <div className="bg-bg-surface border border-border-subtle rounded-xl hidden lg:flex flex-col items-center justify-center text-text-muted">
@@ -97,6 +102,7 @@ export default function ApplicationsPage() {
         </div>
       ) : (
         <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-6">
+          {/* Renewals Table */}
           <div className="bg-bg-surface border border-border-subtle rounded-xl overflow-hidden flex flex-col">
             <RenewalRequestTable
               selectedId={selectedRenewalId}
@@ -104,6 +110,7 @@ export default function ApplicationsPage() {
             />
           </div>
 
+          {/* Renewals Detail Panel */}
           {selectedRenewalId ? (
             <RenewalRequestDetail
               requestId={selectedRenewalId}
@@ -120,6 +127,9 @@ export default function ApplicationsPage() {
   );
 }
 
+/* ==========================================
+   Helper Subcomponents: RenewalRequestTable
+   ========================================== */
 function RenewalRequestTable({
   selectedId,
   onSelect
@@ -202,6 +212,9 @@ function RenewalRequestTable({
   );
 }
 
+/* ==========================================
+   Helper Subcomponents: RenewalRequestDetail
+   ========================================== */
 function RenewalRequestDetail({
   requestId,
   onClose
@@ -241,12 +254,13 @@ function RenewalRequestDetail({
 
   return (
     <div className="bg-bg-surface border border-border-subtle rounded-xl flex flex-col h-full lg:sticky lg:top-6 animate-slide-in">
+      {/* Header */}
       <div className="p-4 border-b border-border-subtle flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <CalendarClock size={16} className="text-primary" />
           <h3 className="text-sm font-semibold text-text-primary">Renewal Details</h3>
         </div>
-        <button
+        <button 
           onClick={onClose}
           className="w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors"
         >
@@ -254,7 +268,9 @@ function RenewalRequestDetail({
         </button>
       </div>
 
+      {/* Body */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        {/* Student details */}
         <div>
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-xs uppercase tracking-wider text-text-muted font-medium">Student Info</h4>
@@ -269,6 +285,7 @@ function RenewalRequestDetail({
           </div>
         </div>
 
+        {/* Current Pass Information */}
         <div>
           <h4 className="text-xs uppercase tracking-wider text-text-muted font-medium mb-3">Current Pass Configuration</h4>
           <div className="bg-bg-base rounded-lg p-3 border border-border-subtle space-y-2.5">
@@ -287,9 +304,10 @@ function RenewalRequestDetail({
           </div>
         </div>
 
+        {/* Review Note */}
         <div className="space-y-1.5">
           <label className="text-xs text-text-secondary">Review Remarks</label>
-          <textarea
+          <textarea 
             value={reviewNote}
             onChange={e => setReviewNote(e.target.value)}
             disabled={req.status !== 'pending'}
@@ -299,16 +317,17 @@ function RenewalRequestDetail({
         </div>
       </div>
 
+      {/* Actions */}
       {req.status === 'pending' && (
         <div className="p-4 border-t border-border-subtle grid grid-cols-2 gap-3 shrink-0 bg-bg-surface/50 backdrop-blur">
-          <button
+          <button 
             onClick={() => handleAction('rejected')}
             disabled={isSubmitting}
             className="flex items-center justify-center gap-2 h-10 bg-danger/10 text-danger border border-danger/20 hover:bg-danger/20 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
           >
             <XCircle size={16} /> Reject
           </button>
-          <button
+          <button 
             onClick={() => handleAction('approved')}
             disabled={isSubmitting}
             className="flex items-center justify-center gap-2 h-10 bg-tertiary/10 text-tertiary border border-tertiary/20 hover:bg-tertiary/20 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
