@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, ArrowRight, Loader2, Terminal } from 'lucide-react';
 import type { ScanResult } from '@/types';
+import { verifyPassManual } from '@/lib/supabase/actions';
 
 export default function ManualEntry({ 
   onResult,
@@ -29,21 +30,15 @@ export default function ManualEntry({
     setError(null);
 
     try {
-      const res = await fetch('/api/verify/manual', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ manualCode: trimmed }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+      const data = await verifyPassManual(trimmed);
+      if (data.result === 'invalid' && data.errorMessage) {
+        setError(data.errorMessage);
+      } else {
+        onResult(data);
+        setCode('');
       }
-
-      const data: ScanResult = await res.json();
-      onResult(data);
-      setCode('');
-    } catch (err) {
-      setError('Network error. Please try again.');
+    } catch (err: any) {
+      setError(err.message || 'Verification error. Please try again.');
       console.error('Manual verification failed:', err);
     } finally {
       setLoading(false);
@@ -102,7 +97,7 @@ export default function ManualEntry({
               }}
               onKeyDown={handleKeyDown}
               placeholder="UTMS-______"
-              maxLength={11}
+              maxLength={50}
               className="w-full h-20 bg-bg-surface border-2 border-border-subtle rounded-2xl text-center text-3xl font-mono font-bold text-text-primary placeholder:text-text-muted/30 focus:outline-none focus:border-primary transition-colors tracking-[0.15em] uppercase"
               disabled={loading}
             />

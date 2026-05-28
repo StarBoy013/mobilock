@@ -1,16 +1,19 @@
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+import { type NextRequest } from 'next/server';
+import { updateSession } from '@/lib/supabase/middleware';
 
-export function proxy(request: NextRequest) {
-  // In a real app, this would verify a JWT cookie.
-  // For the frontend demo, we check localStorage state set by Zustand (authStore).
-  // Note: localStorage isn't available in Edge Middleware, so for the demo we'll
-  // skip strict server-side protection and rely on client-side redirects or just let it pass
-  // since this is a frontend-only mockup right now. 
-  
-  return NextResponse.next();
+export async function proxy(request: NextRequest) {
+  return await updateSession(request);
 }
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+  matcher: [
+    /*
+     * Match all request paths except for:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - Images / Assets with extensions
+     */
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
 };

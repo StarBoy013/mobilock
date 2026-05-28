@@ -3,52 +3,116 @@
 import { useState, useRef, useEffect } from 'react';
 import ScanOverlay from '@/components/conductor/ScanOverlay';
 import ManualEntry from '@/components/conductor/ManualEntry';
-import { Camera, QrCode, Keyboard, RefreshCcw } from 'lucide-react';
+import { Camera, QrCode, Keyboard, RefreshCcw, Send, AlertCircle, Loader2 } from 'lucide-react';
 import type { ScanResult } from '@/types';
-
-// Mock QR Data representing what the camera would decode
-const MOCK_QR_PAYLOADS = [
-  { type: 'valid', data: '{"passId":"pass-001","studentId":"student-001","busId":"bus-003","exp":1761936000}', label: 'Valid Pass (Aarav)' },
-  { type: 'expired', data: '{"passId":"pass-004","studentId":"student-010","busId":"bus-001","exp":1733011200}', label: 'Expired Pass' },
-  { type: 'wrong_bus', data: '{"passId":"pass-002","studentId":"student-005","busId":"bus-999","exp":1761936000}', label: 'Wrong Bus' },
-  { type: 'tampered', data: 'tampered_or_invalid_string', label: 'Tampered QR' }
-];
+import { verifyPassQR, verifyPassManual } from '@/lib/supabase/actions';
+import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 export default function ScannerPage() {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [showManual, setShowManual] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
+  const [manualToken, setManualToken] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   
   const scanLocked = useRef(false);
   const lastScan = useRef<{ data: string; time: number }>({ data: '', time: 0 });
 
-  // Simulate camera initialization
+  // Initialize the HTML5 QR Code Scanner
   useEffect(() => {
-    const timer = setTimeout(() => setCameraActive(true), 1500);
-    return () => clearTimeout(timer);
+    let scanner: any = null;
+
+    // Dynamically import to prevent SSR/Node environments from erroring on document access
+    import('html5-qrcode').then((module) => {
+      // Configuration
+      const config = {
+        fps: 10,
+        qrbox: (width: number, height: number) => {
+          const size = Math.min(width, height) * 0.7;
+          return { width: size, height: size };
+        },
+        aspectRatio: 1.0,
+      };
+
+      scanner = new module.Html5QrcodeScanner(
+        "reader",
+        config,
+        /* verbose= */ false
+      );
+
+      scanner.render(
+        async (decodedText: string) => {
+          if (scanLocked.current) return;
+
+          // Prevent double scanning of the same pass within 5 seconds
+          const now = Date.now();
+          if (lastScan.current.data === decodedText && now - lastScan.current.time < 5000) {
+            return;
+          }
+
+          scanLocked.current = true;
+          lastScan.current = { data: decodedText, time: now };
+          setIsVerifying(true);
+
+          try {
+            // Call Supabase Server Action to verify QR token
+            const result = await verifyPassQR(decodedText);
+            setScanResult(result);
+          } catch (err: any) {
+            console.error('QR code verification failed:', err);
+            setScanResult({ result: 'invalid', reason: 'tampered' });
+          } finally {
+            setIsVerifying(false);
+          }
+        },
+        (errorMessage: string) => {
+          // Silent frame read failures (usual behavior for scanner searching for QRs)
+        }
+      );
+
+      setCameraActive(true);
+      setCameraError(null);
+    }).catch((err) => {
+      console.error('Failed to load html5-qrcode scanner:', err);
+      setCameraError('Failed to load camera scanning library.');
+    });
+
+    // Cleanup scanner on component unmount
+    return () => {
+      if (scanner) {
+        scanner.clear().catch((error: any) => {
+          console.error("Failed to clear scanner on unmount:", error);
+        });
+      }
+    };
   }, []);
 
-  const handleSimulatedScan = (payload: string, type: string) => {
-    if (scanLocked.current) return;
-    
-    // Dedup: prevent same scan within 5 seconds
-    const now = Date.now();
-    if (lastScan.current.data === payload && now - lastScan.current.time < 5000) {
-      console.log('Ignoring duplicate scan');
-      return;
+  const handleManualTokenSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const input = manualToken.trim();
+    if (!input || isVerifying) return;
+
+    setIsVerifying(true);
+    try {
+      let result;
+      // If it looks like a manual code, roll number, or pass UUID, verify manually
+      if (input.length < 50) {
+        result = await verifyPassManual(input);
+      } else {
+        result = await verifyPassQR(input);
+      }
+      setScanResult(result);
+      setManualToken('');
+      toast.success('Verification completed');
+    } catch (err: any) {
+      console.error('Verification error:', err);
+      setScanResult({ result: 'invalid', reason: 'tampered' });
+      toast.error('Verification failed');
+    } finally {
+      setIsVerifying(false);
     }
-    
-    scanLocked.current = true;
-    lastScan.current = { data: payload, time: now };
-
-    // Mock Backend Verification Logic based on type
-    let result: ScanResult;
-    if (type === 'valid') result = { result: 'valid', student: { name: 'Aarav Sharma', universityId: 'U-2024-0042' } };
-    else if (type === 'expired') result = { result: 'invalid', reason: 'expired' };
-    else if (type === 'wrong_bus') result = { result: 'invalid', reason: 'wrong_bus' };
-    else result = { result: 'invalid', reason: 'tampered' };
-
-    setScanResult(result);
   };
 
   const handleManualResult = (result: ScanResult) => {
@@ -63,53 +127,66 @@ export default function ScannerPage() {
 
   return (
     <div className="h-full relative bg-black flex flex-col">
-      {/* Camera Viewport Simulation */}
-      <div className="flex-1 relative overflow-hidden flex flex-col items-center justify-center">
-        {cameraActive ? (
-          <>
-            <div className="absolute inset-0 bg-bg-surface/20" />
-            
-            {/* Scanner Reticle */}
-            <div className="relative w-64 h-64 border-2 border-primary/50 rounded-xl">
-              {/* Corner accents */}
-              <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg" />
-              <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg" />
-              <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg" />
-              <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg" />
-              
-              {/* Scanning laser animation */}
-              <div className="absolute left-0 right-0 h-0.5 bg-primary/80 glow-primary top-1/2 animate-[pulse-glow_1.5s_ease-in-out_infinite]" />
+      {/* Scanner Viewport */}
+      <div className="flex-1 relative overflow-hidden flex flex-col items-center justify-center p-4">
+        
+        {/* Real Camera reader element */}
+        <div className="w-full max-w-sm aspect-square relative rounded-2xl overflow-hidden border border-border-subtle bg-bg-surface/20 flex flex-col items-center justify-center">
+          <div id="reader" className={`w-full h-full object-cover [&_video]:object-cover ${!cameraActive ? 'hidden' : ''}`} />
+          
+          {!cameraActive && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-white/50 p-6 text-center z-10">
+              {cameraError ? (
+                <>
+                  <AlertCircle size={32} className="text-danger mb-3 animate-pulse" />
+                  <p className="text-sm font-semibold text-text-primary mb-1">Webcam Unreachable</p>
+                  <p className="text-xs text-text-muted">{cameraError}</p>
+                </>
+              ) : (
+                <>
+                  <RefreshCcw size={32} className="animate-spin mb-4" />
+                  <p className="text-sm font-mono">Initializing Webcam...</p>
+                </>
+              )}
             </div>
-            
-            <p className="absolute bottom-16 text-xs font-mono text-white/70 tracking-widest uppercase">
-              Align QR code within frame
-            </p>
-          </>
-        ) : (
-          <div className="flex flex-col items-center text-white/50">
-            <RefreshCcw size={32} className="animate-spin mb-4" />
-            <p className="text-sm font-mono">Initializing Camera...</p>
-          </div>
-        )}
+          )}
 
-        {/* Mock Scan Buttons (Frontend Demo Only) */}
-        <div className="absolute top-4 left-4 right-4 bg-bg-surface/80 backdrop-blur rounded-xl p-3 border border-border-subtle z-20">
-          <p className="text-[10px] text-text-muted uppercase mb-2 text-center">Simulation Controls</p>
-          <div className="grid grid-cols-2 gap-2">
-            {MOCK_QR_PAYLOADS.map((mock) => (
-              <button
-                key={mock.label}
-                onClick={() => handleSimulatedScan(mock.data, mock.type)}
-                className="text-[10px] py-1.5 bg-bg-elevated hover:bg-bg-base text-text-primary border border-border-subtle rounded transition-colors"
-              >
-                {mock.label}
-              </button>
-            ))}
-          </div>
+          {/* Loading Indicator for Verification */}
+          {isVerifying && (
+            <div className="absolute inset-0 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center z-30">
+              <Loader2 size={36} className="text-primary animate-spin mb-3" />
+              <p className="text-xs text-primary font-mono tracking-widest uppercase">Verifying Pass...</p>
+            </div>
+          )}
+        </div>
+
+        {/* Collapsible / Floating Panel for Token Copy-Paste Fallback */}
+        <div className="w-full max-w-sm mt-4 bg-bg-surface/80 backdrop-blur rounded-xl p-3.5 border border-border-subtle z-20">
+          <p className="text-[10px] text-text-secondary font-mono uppercase mb-2 tracking-wider flex items-center gap-1.5">
+            <Camera size={10} className="text-primary" /> Webcam Unavailable? Verify Pass Manually:
+          </p>
+          <form onSubmit={handleManualTokenSubmit} className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Enter manual code, roll number, or paste QR token..."
+              value={manualToken}
+              onChange={(e) => setManualToken(e.target.value)}
+              className="flex-1 h-9 px-3 bg-bg-base border border-border-subtle rounded-lg text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/50"
+              disabled={isVerifying}
+            />
+            <button
+              type="submit"
+              disabled={!manualToken.trim() || isVerifying}
+              className="h-9 w-9 bg-primary/10 hover:bg-primary/25 border border-primary/20 text-primary rounded-lg flex items-center justify-center transition-colors disabled:opacity-40"
+              title="Verify Token"
+            >
+              <Send size={14} />
+            </button>
+          </form>
         </div>
       </div>
 
-      {/* Bottom Controls */}
+      {/* Bottom Navigation */}
       <div className="h-20 bg-bg-base border-t border-border-subtle flex items-center justify-around shrink-0 relative z-30">
         <button 
           onClick={() => setShowManual(false)}

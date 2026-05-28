@@ -1,0 +1,28 @@
+[2026-05-28T06:16:56.529Z] ACTION: verifyPassManual
+Error Message: Unauthenticated
+Details/Code: N/A
+Stack Trace:
+Error: Unauthenticated
+    at verifyPassManual (E:\mobilock final\frontend\.next\dev\server\chunks\[root-of-the-server]__09arfh3._.js:269:35)
+    at async GET (E:\mobilock final\frontend\.next\dev\server\chunks\[root-of-the-server]__09arfh3._.js:823:24)
+    at async AppRouteRouteModule.do (E:\mobilock final\frontend\node_modules\next\dist\compiled\next-server\app-route-turbo.runtime.dev.js:5:40115)
+    at async AppRouteRouteModule.handle (E:\mobilock final\frontend\node_modules\next\dist\compiled\next-server\app-route-turbo.runtime.dev.js:5:47321)
+    at async responseGenerator (E:\mobilock final\frontend\.next\dev\server\chunks\node_modules_next_0sqekj9._.js:17731:38)
+    at async AppRouteRouteModule.handleResponse (E:\mobilock final\frontend\node_modules\next\dist\compiled\next-server\app-route-turbo.runtime.dev.js:1:227216)
+    at async handleResponse (E:\mobilock final\frontend\.next\dev\server\chunks\node_modules_next_0sqekj9._.js:17794:32)
+    at async Module.handler (E:\mobilock final\frontend\.next\dev\server\chunks\node_modules_next_0sqekj9._.js:17848:13)
+    at async DevServer.renderToResponseWithComponentsImpl (E:\mobilock final\frontend\node_modules\next\dist\server\base-server.js:1454:9)
+    at async DevServer.renderPageComponent (E:\mobilock final\frontend\node_modules\next\dist\server\base-server.js:1506:24)
+    at async DevServer.renderToResponseImpl (E:\mobilock final\frontend\node_modules\next\dist\server\base-server.js:1556:32)
+    at async DevServer.pipeImpl (E:\mobilock final\frontend\node_modules\next\dist\server\base-server.js:1043:25)
+    at async NextNodeServer.handleCatchallRenderRequest (E:\mobilock final\frontend\node_modules\next\dist\server\next-server.js:338:17)
+    at async DevServer.handleRequestImpl (E:\mobilock final\frontend\node_modules\next\dist\server\base-server.js:934:17)
+    at async E:\mobilock final\frontend\node_modules\next\dist\server\dev\next-dev-server.js:394:20
+    at async Span.traceAsyncFn (E:\mobilock final\frontend\node_modules\next\dist\trace\trace.js:164:20)
+    at async DevServer.handleRequest (E:\mobilock final\frontend\node_modules\next\dist\server\dev\next-dev-server.js:390:24)
+    at async invokeRender (E:\mobilock final\frontend\node_modules\next\dist\server\lib\router-server.js:266:21)
+    at async handleRequest (E:\mobilock final\frontend\node_modules\next\dist\server\lib\router-server.js:465:24)
+    at async requestHandlerImpl (E:\mobilock final\frontend\node_modules\next\dist\server\lib\router-server.js:514:13)
+    at async Server.requestListener (E:\mobilock final\frontend\node_modules\next\dist\server\lib\start-server.js:225:13)
+----------------------------------------
+

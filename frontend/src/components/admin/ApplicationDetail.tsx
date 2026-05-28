@@ -5,6 +5,7 @@ import { useApplications, useBuses, useRoutes } from '@/hooks/queries';
 import { X, Check, XCircle, FileText, Image as ImageIcon, MapPin, Bus } from 'lucide-react';
 import { cn, formatDate, getStatusBg } from '@/lib/utils';
 import { toast } from 'sonner';
+import { updateApplicationStatus } from '@/lib/supabase/actions';
 
 export default function ApplicationDetail({ 
   applicationId,
@@ -26,32 +27,46 @@ export default function ApplicationDetail({
 
   if (!app) return null;
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
     if (!assignedBus || !assignedRoute) {
       toast.error('Bus and route must be assigned to approve.');
       return;
     }
     setIsSubmitting(true);
-    // Mock API call
-    setTimeout(() => {
+    try {
+      const res = await updateApplicationStatus(applicationId, 'approved', assignedBus, assignedRoute, reviewNote);
+      if (res.success) {
+        toast.success('Application approved successfully');
+        onClose();
+      } else {
+        toast.error(res.error || 'Failed to approve application');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to approve application');
+    } finally {
       setIsSubmitting(false);
-      toast.success('Application approved successfully');
-      onClose();
-    }, 800);
+    }
   };
 
-  const handleReject = () => {
+  const handleReject = async () => {
     if (!reviewNote.trim()) {
       toast.error('Review note required for rejection.');
       return;
     }
     setIsSubmitting(true);
-    // Mock API call
-    setTimeout(() => {
+    try {
+      const res = await updateApplicationStatus(applicationId, 'rejected', undefined, undefined, reviewNote);
+      if (res.success) {
+        toast.success('Application rejected');
+        onClose();
+      } else {
+        toast.error(res.error || 'Failed to reject application');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to reject application');
+    } finally {
       setIsSubmitting(false);
-      toast.success('Application rejected');
-      onClose();
-    }, 800);
+    }
   };
 
   return (

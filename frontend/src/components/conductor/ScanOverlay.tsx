@@ -62,9 +62,21 @@ export default function ScanOverlay({
           <>
             <h2 className="text-3xl font-bold text-danger mb-2">INVALID</h2>
             <div className="w-full h-px bg-white/10 my-4" />
-            <p className="text-xl font-medium text-text-primary">
-              {result.reason ? REASON_MESSAGES[result.reason] : 'Unknown Error'}
+            <p className="text-xl font-bold text-text-primary mb-2">
+              {(result as any).errorMessage || (result.reason === 'wrong_bus' ? 'WRONG BUS ROUTE' : (result.reason ? REASON_MESSAGES[result.reason] : 'Unknown Error'))}
             </p>
+            {result.reason === 'wrong_bus' && (
+              <div className="w-full bg-danger/10 border border-danger/20 rounded-xl p-4 text-xs font-mono space-y-1.5 text-text-secondary text-left mt-2">
+                <p className="flex justify-between">
+                  <span>Assigned Bus:</span>
+                  <span className="font-bold text-danger">{(result as any).assignedBusNumber}</span>
+                </p>
+                <p className="flex justify-between">
+                  <span>Current Bus:</span>
+                  <span className="font-bold text-primary">{(result as any).currentBusNumber}</span>
+                </p>
+              </div>
+            )}
           </>
         )}
       </div>

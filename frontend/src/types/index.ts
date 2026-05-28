@@ -76,6 +76,7 @@ export interface PassApplication {
   reviewNote?: string;
   reviewedAt?: string;
   autoRenew: boolean;
+  paymentReference?: string;
   // Joined fields for display
   studentName?: string;
   studentUniversityId?: string;
@@ -174,6 +175,7 @@ export interface PassStatusCount {
 export interface ScanResult {
   result: VerificationResult;
   reason?: InvalidReason;
+  errorMessage?: string;
   student?: {
     name: string;
     universityId: string;

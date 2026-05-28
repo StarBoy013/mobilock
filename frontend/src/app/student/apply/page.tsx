@@ -6,6 +6,7 @@ import { useRoutes } from '@/hooks/queries';
 import { UploadCloud, CheckCircle2, FileText, Image as ImageIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { submitPassApplication } from '@/lib/supabase/actions';
 
 export default function ApplyPage() {
   const router = useRouter();
@@ -30,13 +31,21 @@ export default function ApplyPage() {
     );
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setIsSubmitting(true);
-    setTimeout(() => {
+    try {
+      const res = await submitPassApplication(routePreference);
+      if (res.success) {
+        toast.success('Application submitted successfully!');
+        router.push('/student/dashboard');
+      } else {
+        toast.error(res.error || 'Failed to submit application');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to submit application');
+    } finally {
       setIsSubmitting(false);
-      toast.success('Application submitted successfully!');
-      router.push('/student/dashboard');
-    }, 2000);
+    }
   };
 
   return (
