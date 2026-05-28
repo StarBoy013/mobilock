@@ -16,17 +16,15 @@ export default function ScannerPage() {
   const [manualToken, setManualToken] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  
+
   const scanLocked = useRef(false);
   const lastScan = useRef<{ data: string; time: number }>({ data: '', time: 0 });
 
-  // Initialize the HTML5 QR Code Scanner
   useEffect(() => {
     let scanner: any = null;
 
-    // Dynamically import to prevent SSR/Node environments from erroring on document access
     import('html5-qrcode').then((module) => {
-      // Configuration
+
       const config = {
         fps: 10,
         qrbox: (width: number, height: number) => {
@@ -39,14 +37,13 @@ export default function ScannerPage() {
       scanner = new module.Html5QrcodeScanner(
         "reader",
         config,
-        /* verbose= */ false
+         false
       );
 
       scanner.render(
         async (decodedText: string) => {
           if (scanLocked.current) return;
 
-          // Prevent double scanning of the same pass within 5 seconds
           const now = Date.now();
           if (lastScan.current.data === decodedText && now - lastScan.current.time < 5000) {
             return;
@@ -57,7 +54,7 @@ export default function ScannerPage() {
           setIsVerifying(true);
 
           try {
-            // Call Supabase Server Action to verify QR token
+
             const result = await verifyPassQR(decodedText);
             setScanResult(result);
           } catch (err: any) {
@@ -68,7 +65,7 @@ export default function ScannerPage() {
           }
         },
         (errorMessage: string) => {
-          // Silent frame read failures (usual behavior for scanner searching for QRs)
+
         }
       );
 
@@ -79,7 +76,6 @@ export default function ScannerPage() {
       setCameraError('Failed to load camera scanning library.');
     });
 
-    // Cleanup scanner on component unmount
     return () => {
       if (scanner) {
         scanner.clear().catch((error: any) => {
@@ -97,7 +93,7 @@ export default function ScannerPage() {
     setIsVerifying(true);
     try {
       let result;
-      // If it looks like a manual code, roll number, or pass UUID, verify manually
+
       if (input.length < 50) {
         result = await verifyPassManual(input);
       } else {
@@ -127,13 +123,11 @@ export default function ScannerPage() {
 
   return (
     <div className="h-full relative bg-black flex flex-col">
-      {/* Scanner Viewport */}
       <div className="flex-1 relative overflow-hidden flex flex-col items-center justify-center p-4">
-        
-        {/* Real Camera reader element */}
+
         <div className="w-full max-w-sm aspect-square relative rounded-2xl overflow-hidden border border-border-subtle bg-bg-surface/20 flex flex-col items-center justify-center">
           <div id="reader" className={`w-full h-full object-cover [&_video]:object-cover ${!cameraActive ? 'hidden' : ''}`} />
-          
+
           {!cameraActive && (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-white/50 p-6 text-center z-10">
               {cameraError ? (
@@ -151,7 +145,6 @@ export default function ScannerPage() {
             </div>
           )}
 
-          {/* Loading Indicator for Verification */}
           {isVerifying && (
             <div className="absolute inset-0 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center z-30">
               <Loader2 size={36} className="text-primary animate-spin mb-3" />
@@ -160,7 +153,6 @@ export default function ScannerPage() {
           )}
         </div>
 
-        {/* Collapsible / Floating Panel for Token Copy-Paste Fallback */}
         <div className="w-full max-w-sm mt-4 bg-bg-surface/80 backdrop-blur rounded-xl p-3.5 border border-border-subtle z-20">
           <p className="text-[10px] text-text-secondary font-mono uppercase mb-2 tracking-wider flex items-center gap-1.5">
             <Camera size={10} className="text-primary" /> Webcam Unavailable? Verify Pass Manually:
@@ -186,16 +178,15 @@ export default function ScannerPage() {
         </div>
       </div>
 
-      {/* Bottom Navigation */}
       <div className="h-20 bg-bg-base border-t border-border-subtle flex items-center justify-around shrink-0 relative z-30">
-        <button 
+        <button
           onClick={() => setShowManual(false)}
           className={`flex flex-col items-center gap-1 p-2 ${!showManual ? 'text-primary' : 'text-text-secondary'}`}
         >
           <QrCode size={24} />
           <span className="text-[10px] font-medium">Scanner</span>
         </button>
-        <button 
+        <button
           onClick={() => setShowManual(true)}
           className={`flex flex-col items-center gap-1 p-2 ${showManual ? 'text-primary' : 'text-text-secondary'}`}
         >
@@ -204,15 +195,14 @@ export default function ScannerPage() {
         </button>
       </div>
 
-      {/* Overlays */}
       {scanResult && (
         <ScanOverlay result={scanResult} onDismiss={handleOverlayDismiss} />
       )}
-      
+
       {showManual && (
-        <ManualEntry 
-          onResult={handleManualResult} 
-          onClose={() => setShowManual(false)} 
+        <ManualEntry
+          onResult={handleManualResult}
+          onClose={() => setShowManual(false)}
         />
       )}
     </div>

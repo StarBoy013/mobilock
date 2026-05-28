@@ -1,25 +1,13 @@
--- ============================================================
--- MobiLock (UTMS) Production Database Setup & Seed Data
--- Target: Supabase PostgreSQL
--- THIS SCRIPT IS FULLY IDEMPOTENT — safe to re-run at any time
--- ============================================================
 
--- Create pgcrypto extension for crypt and gen_salt
+
 create extension if not exists pgcrypto;
 
--- ==========================================
--- 1. Table Alterations
--- ==========================================
-
-alter table public.buses 
+alter table public.buses
     add column if not exists conductor_id uuid references public.profiles(id) on delete set null;
 
-alter table public.verification_logs 
+alter table public.verification_logs
     add column if not exists method text default 'qr';
 
--- ==========================================
--- 2. New Notifications Table
--- ==========================================
 create table if not exists public.notifications (
     id uuid primary key default gen_random_uuid(),
     user_id uuid references public.profiles(id) on delete cascade,
@@ -40,9 +28,6 @@ drop policy if exists "Admins can manage notifications" on public.notifications;
 create policy "Admins can manage notifications" on public.notifications
     for all using (public.get_auth_user_role() = 'super_admin');
 
--- ==========================================
--- 3. New Renewal Requests Table
--- ==========================================
 create table if not exists public.renewal_requests (
     id uuid primary key default gen_random_uuid(),
     student_id uuid not null references public.profiles(id) on delete cascade,
@@ -63,9 +48,6 @@ drop policy if exists "Admins can manage renewals" on public.renewal_requests;
 create policy "Admins can manage renewals" on public.renewal_requests
     for all using (public.get_auth_user_role() = 'super_admin');
 
--- ==========================================
--- 4. Fix Trigger — Make it upsert-safe
--- ==========================================
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
@@ -88,9 +70,6 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ==========================================
--- 5. Seed Data Clean Up
--- ==========================================
 delete from public.renewal_requests;
 delete from public.notifications;
 delete from public.verification_logs;
@@ -100,7 +79,6 @@ delete from public.stops;
 delete from public.buses;
 delete from public.routes;
 
--- Delete seed users by email, fixed UUIDs, AND enrollment_number
 delete from public.profiles where email in (
     'admin@utms.edu','conductor@utms.edu','student@utms.edu',
     'student_expired@utms.edu','student_wrong_bus@utms.edu'
@@ -110,7 +88,6 @@ delete from public.profiles where email in (
     '00000000-0000-0000-0000-000000000005'
 ) or enrollment_number in ('U-2024-0042','U-2023-0189','U-2024-0056');
 
--- Clean up identities first (FK dependency)
 delete from auth.identities where user_id in (
     '00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002',
     '00000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000004',
@@ -126,9 +103,6 @@ delete from auth.users where email in (
     '00000000-0000-0000-0000-000000000005'
 );
 
--- ==========================================
--- 6. Seed Auth Users (trigger auto-creates profiles)
--- ==========================================
 insert into auth.users (
     id, instance_id, email, encrypted_password, email_confirmed_at,
     raw_app_meta_data, raw_user_meta_data,
@@ -185,9 +159,6 @@ insert into auth.users (
     'authenticated', 'authenticated', now(), now(), false
 );
 
--- ==========================================
--- 6b. Seed Auth Identities (REQUIRED for Supabase Auth v2)
--- ==========================================
 insert into auth.identities (
     id, user_id, provider_id, provider, identity_data, last_sign_in_at, created_at, updated_at
 ) values
@@ -232,10 +203,6 @@ insert into auth.identities (
     now(), now(), now()
 );
 
--- ==========================================
--- 7. Seed Operational Data
--- ==========================================
-
 insert into public.routes (id, name, start_point, end_point, distance, is_active) values
 ('11111111-1111-1111-1111-111111111111', 'Campus Express — North Gate', 'Main Gate', 'North Gate', 4.20, true),
 ('11111111-1111-1111-1111-111111111112', 'Metro Link — Sector 15', 'Metro Station', 'Sector 15', 8.70, true);
@@ -252,10 +219,6 @@ insert into public.buses (id, bus_number, capacity, route_id, driver_name, drive
 ('22222222-2222-2222-2222-222222222221', 'UNI-001', 56, '11111111-1111-1111-1111-111111111111', 'Ramesh Yadav', '+91-9812345001', 78, 42, true, '00000000-0000-0000-0000-000000000002'),
 ('22222222-2222-2222-2222-222222222222', 'UNI-002', 48, '11111111-1111-1111-1111-111111111112', 'Suresh Patel', '+91-9812345002', 45, 35, true, null),
 ('22222222-2222-2222-2222-222222222223', 'UNI-003', 50, '11111111-1111-1111-1111-111111111111', 'Manoj Kumar', '+91-9812345003', 92, 12, true, null);
-
--- ==========================================
--- 8. Seed Passes & Applications
--- ==========================================
 
 insert into public.passes (id, student_id, route_id, bus_id, status, manual_code, expiry, qr_token) values
 (
@@ -287,10 +250,6 @@ insert into public.pass_applications (id, student_id, requested_route_id, status
 ('44444444-4444-4444-4444-444444444441', '00000000-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'approved', 'PAY-SEED-01', 'Approved automatically', now() - interval '30 days', now() - interval '29 days'),
 ('44444444-4444-4444-4444-444444444442', '00000000-0000-0000-0000-000000000004', '11111111-1111-1111-1111-111111111111', 'approved', 'PAY-SEED-02', 'Approved in seed', now() - interval '60 days', now() - interval '59 days'),
 ('44444444-4444-4444-4444-444444444443', '00000000-0000-0000-0000-000000000005', '11111111-1111-1111-1111-111111111112', 'approved', 'PAY-SEED-03', 'Approved in seed', now() - interval '10 days', now() - interval '9 days');
-
--- ==========================================
--- 9. Seed Alerts & Verification Logs
--- ==========================================
 
 insert into public.notifications (user_id, severity, message, source) values
 (null, 'critical', 'Bus UNI-003 fuel sensor malfunction detected', 'Fleet Engine'),

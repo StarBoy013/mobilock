@@ -1,17 +1,8 @@
-// ========================================
-// UTMS — Mock Pass Code Verification Service (legacy/testing only)
-// Production verification happens in actions.ts (Supabase Server Actions)
-// ========================================
-
 import { mockPasses } from './mock-data';
 import type { ScanResult, VerificationLog } from '@/types';
 
-// In-memory verification log store (mock only)
 const verificationLogs: VerificationLog[] = [];
 
-/**
- * Generate a unique manual code in format UTMS-XXXXXX
- */
 export function generateManualCode(existingCodes: Set<string>): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code: string;
@@ -31,10 +22,6 @@ function normalizeManualCode(input: string): string {
   return code;
 }
 
-/**
- * Core verification function (mock — uses in-memory mockPasses).
- * Production code uses verifyPassManual() in actions.ts.
- */
 export function verifyManualCode(manualCode: string): ScanResult & { _logged?: boolean } {
   const normalized = normalizeManualCode(manualCode);
   const pass = mockPasses.find(p => p.manualCode.toUpperCase() === normalized);

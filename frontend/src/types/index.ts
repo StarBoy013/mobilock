@@ -1,9 +1,3 @@
-// ========================================
-// UTMS — Shared TypeScript Types
-// Mirrors Mongoose schemas from documentation
-// ========================================
-
-// ---- User ----
 export type UserRole = 'super_admin' | 'student' | 'conductor';
 
 export interface User {
@@ -11,36 +5,32 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
-  universityId?: string;    // students only
+  universityId?: string;
   phone?: string;
-  assignedBus?: string;     // conductor only — Bus._id
+  assignedBus?: string;
   isActive: boolean;
   lastLogin?: string;
   createdAt: string;
   updatedAt: string;
 }
 
-// ---- Bus ----
 export interface Bus {
   _id: string;
   busNumber: string;
   capacity: number;
   driverName: string;
   driverContact: string;
-  conductor?: string;       // User._id
-  assignedRoute?: string;   // Route._id
+  conductor?: string;
+  assignedRoute?: string;
   isActive: boolean;
-  // Computed / joined fields for UI
   currentOccupancy?: number;
   routeName?: string;
   conductorName?: string;
   coordinates?: { lat: number; lng: number };
-  fuelLevel?: number;       // percentage
+  fuelLevel?: number;
   createdAt: string;
   updatedAt: string;
 }
-
-// ---- Route ----
 export interface RouteStop {
   name: string;
   order: number;
@@ -51,13 +41,11 @@ export interface BusRoute {
   _id: string;
   name: string;
   stops: RouteStop[];
-  distance?: number;        // km
+  distance?: number;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
 }
-
-// ---- PassApplication ----
 export type ApplicationStatus = 'pending' | 'approved' | 'rejected';
 
 export interface ApplicationDocuments {
@@ -67,17 +55,16 @@ export interface ApplicationDocuments {
 
 export interface PassApplication {
   _id: string;
-  student: string;          // User._id
+  student: string;
   status: ApplicationStatus;
   documents: ApplicationDocuments;
-  assignedBus?: string;     // Bus._id
-  assignedRoute?: string;   // Route._id
-  reviewedBy?: string;      // User._id
+  assignedBus?: string;
+  assignedRoute?: string;
+  reviewedBy?: string;
   reviewNote?: string;
   reviewedAt?: string;
   autoRenew: boolean;
   paymentReference?: string;
-  // Joined fields for display
   studentName?: string;
   studentUniversityId?: string;
   busNumber?: string;
@@ -86,30 +73,26 @@ export interface PassApplication {
   updatedAt: string;
 }
 
-// ---- Pass ----
 // All 6 canonical statuses — must match the Supabase passes_status_check constraint exactly.
 export type PassStatus = 'active' | 'expired' | 'suspended' | 'revoked' | 'cancelled' | 'renewed';
 
 export interface Pass {
   _id: string;
-  student: string;          // User._id
-  application: string;      // PassApplication._id
-  assignedBus: string;      // Bus._id
-  assignedRoute: string;    // Route._id
+  student: string;
+  application: string;
+  assignedBus: string;
+  assignedRoute: string;
   status: PassStatus;
   qrToken: string;
-  manualCode: string;       // e.g. "UTMS-A92KD1"
+  manualCode: string;
   issuedAt: string;
   expiresAt: string;
   autoRenew: boolean;
   lastScannedAt?: string;
-  // Status audit trail (from migration 002)
-  statusReason?: string;         // Human-readable reason for current status
-  statusUpdatedAt?: string;      // When the status was last changed
-  statusUpdatedBy?: string;      // Admin UUID who changed it (null = system)
-  // Computed expiry helper (derived client-side)
+  statusReason?: string;
+  statusUpdatedAt?: string;
+  statusUpdatedBy?: string;
   isExpiredByDate?: boolean;
-  // Joined fields for display
   studentName?: string;
   studentUniversityId?: string;
   busNumber?: string;
@@ -118,7 +101,6 @@ export interface Pass {
   updatedAt: string;
 }
 
-// ---- VerificationLog ----
 export type VerificationResult = 'valid' | 'invalid';
 export type VerificationMethod = 'qr' | 'manual';
 
@@ -157,23 +139,18 @@ export interface VerificationLog {
   method?: VerificationMethod;
   reason?: InvalidReason;
   scannedAt: string;
-  // Joined fields
   studentName?: string;
   studentUniversityId?: string;
   busNumber?: string;
 }
-
-// ---- KPI ----
 export interface KpiData {
   label: string;
   value: number | string;
-  trend: number;            // percentage change
+  trend: number;
   trendDirection: 'up' | 'down' | 'flat';
   sparklineData: number[];
   unit?: string;
 }
-
-// ---- Alert ----
 export type AlertSeverity = 'critical' | 'warning' | 'info';
 
 export interface SystemAlert {
@@ -183,8 +160,6 @@ export interface SystemAlert {
   timestamp: string;
   source?: string;
 }
-
-// ---- Chart Data ----
 export interface ScanVolumePoint {
   date: string;
   scans: number;
@@ -201,8 +176,6 @@ export interface PassStatusCount {
   status: PassStatus;
   count: number;
 }
-
-// ---- Scan Result (structured verification response) ----
 
 /** Valid pass — all 5 stages passed */
 export interface ValidScanResult {
@@ -227,7 +200,6 @@ export interface InvalidScanResult {
 
 export type ScanResult = ValidScanResult | InvalidScanResult;
 
-// ---- Pagination ----
 export interface PaginatedResponse<T> {
   data: T[];
   total: number;

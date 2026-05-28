@@ -17,7 +17,7 @@ export default function PassCard({ pass }: { pass: Pass }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback for older browsers
+
       const textArea = document.createElement('textarea');
       textArea.value = pass.manualCode;
       document.body.appendChild(textArea);
@@ -31,10 +31,8 @@ export default function PassCard({ pass }: { pass: Pass }) {
 
   return (
     <div className="relative w-full max-w-sm mx-auto bg-bg-surface rounded-2xl border border-border-subtle overflow-hidden shadow-2xl">
-      {/* Glow Effect / Background pattern */}
       <div className="absolute inset-0 bg-gradient-to-b from-primary/10 to-transparent opacity-50 pointer-events-none" />
-      
-      {/* Header */}
+
       <div className="p-5 pb-4 flex items-start justify-between border-b border-border-subtle relative z-10">
         <div>
           <h3 className="text-lg font-bold text-text-primary">{pass.studentName}</h3>
@@ -45,15 +43,14 @@ export default function PassCard({ pass }: { pass: Pass }) {
         </span>
       </div>
 
-      {/* QR Code Section */}
       <div className="p-6 flex flex-col items-center justify-center bg-white/5 relative z-10">
         <div className={cn(
           "p-3 rounded-xl bg-white shadow-xl transition-all duration-300",
           pass.status === 'active' ? "glow-primary" : "opacity-50 grayscale"
         )}>
-          <QRCodeSVG 
-            value={pass.qrToken} 
-            size={180} 
+          <QRCodeSVG
+            value={pass.qrToken}
+            size={180}
             level="H"
             includeMargin={false}
           />
@@ -63,7 +60,6 @@ export default function PassCard({ pass }: { pass: Pass }) {
         </p>
       </div>
 
-      {/* Manual Verification Code */}
       <div className="mx-5 p-3 bg-bg-base/80 border border-border-subtle rounded-xl relative z-10">
         <p className="text-[10px] text-text-muted uppercase tracking-wider text-center mb-2">
           Manual Verification Code
@@ -87,7 +83,6 @@ export default function PassCard({ pass }: { pass: Pass }) {
         </div>
       </div>
 
-      {/* Details */}
       <div className="p-5 pt-4 space-y-4 relative z-10 border-t border-border-subtle bg-bg-base/50 mt-3">
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
@@ -108,7 +103,7 @@ export default function PassCard({ pass }: { pass: Pass }) {
           {pass.status === 'active' && (
             <div className="text-right">
               <span className={cn(
-                "text-xs font-bold", 
+                "text-xs font-bold",
                 isExpiringSoon ? "text-warning" : "text-tertiary"
               )}>
                 {daysLeft} Days Left
