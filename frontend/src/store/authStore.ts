@@ -28,7 +28,7 @@ export const useAuthStore = create<AuthState>()(
         const supabase = createClient();
         await supabase.auth.signOut();
         set({ user: null, accessToken: null, isAuthenticated: false });
-        // Clear persisted storage
+
         if (typeof window !== 'undefined') {
           localStorage.removeItem('utms-auth');
           window.location.href = '/login';
@@ -48,7 +48,6 @@ export const useAuthStore = create<AuthState>()(
         const user = data.user;
         if (!user) throw new Error('Authentication failed');
 
-        // Fetch corresponding profile with retry loop to accommodate trigger delay
         let profile = null;
         let profileError = null;
         for (let i = 0; i < 5; i++) {
@@ -57,7 +56,7 @@ export const useAuthStore = create<AuthState>()(
             .select('*')
             .eq('id', user.id)
             .single();
-          
+
           if (p) {
             profile = p;
             break;
@@ -72,7 +71,6 @@ export const useAuthStore = create<AuthState>()(
           throw new Error('User profile not found');
         }
 
-        // Query assigned bus if the user is a conductor
         let assignedBusId: string | undefined = undefined;
         if (profile.role === 'conductor') {
           const { data: bus } = await supabase
@@ -104,7 +102,7 @@ export const useAuthStore = create<AuthState>()(
 
       mockLogin: async (roleKey: string) => {
         let email = '';
-        let password = 'Student@123'; // Seed student password
+        let password = 'Student@123';
 
         if (roleKey === 'super_admin') {
           email = 'admin@utms.edu';
@@ -129,7 +127,7 @@ export const useAuthStore = create<AuthState>()(
       syncSession: async () => {
         const supabase = createClient();
         const { data: { session } } = await supabase.auth.getSession();
-        
+
         if (session && session.user) {
           const { data: profile } = await supabase
             .from('profiles')
@@ -138,7 +136,7 @@ export const useAuthStore = create<AuthState>()(
             .single();
 
           if (profile) {
-            // Query assigned bus if the user is a conductor
+
             let assignedBusId: string | undefined = undefined;
             if (profile.role === 'conductor') {
               const { data: bus } = await supabase

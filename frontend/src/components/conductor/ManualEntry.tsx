@@ -5,10 +5,10 @@ import { X, ArrowRight, Loader2, Terminal } from 'lucide-react';
 import type { ScanResult } from '@/types';
 import { verifyPassManual } from '@/lib/supabase/actions';
 
-export default function ManualEntry({ 
+export default function ManualEntry({
   onResult,
-  onClose 
-}: { 
+  onClose
+}: {
   onResult: (result: ScanResult) => void;
   onClose: () => void;
 }) {
@@ -17,7 +17,6 @@ export default function ManualEntry({
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-focus on mount
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
@@ -31,12 +30,11 @@ export default function ManualEntry({
 
     try {
       const data = await verifyPassManual(trimmed);
-      // Route ALL results (valid OR invalid) through onResult → shown in ScanOverlay.
-      // Only thrown exceptions (network down, server 500) land in the catch block below.
+
       onResult(data);
       setCode('');
     } catch (err: any) {
-      // True system/network error — show inline message, don't dismiss the form
+
       setError(err.message || 'Network or server error. Please try again.');
       console.error('Manual verification failed:', err);
     } finally {
@@ -58,30 +56,26 @@ export default function ManualEntry({
 
   return (
     <div className="absolute inset-0 z-40 bg-bg-base flex flex-col animate-fade-in">
-      {/* Header */}
       <div className="h-14 flex items-center justify-between px-4 border-b border-border-subtle bg-bg-surface/50 shrink-0">
         <div className="flex items-center gap-2">
           <Terminal size={16} className="text-primary" />
           <h3 className="text-sm font-bold text-text-primary tracking-wide">MANUAL VERIFICATION</h3>
         </div>
-        <button 
-          onClick={onClose} 
+        <button
+          onClick={onClose}
           className="w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors"
         >
           <X size={18} />
         </button>
       </div>
 
-      {/* Content */}
       <div className="flex-1 flex flex-col items-center justify-center p-6">
         <form onSubmit={handleSubmit} className="w-full max-w-md mx-auto flex flex-col items-center">
-          {/* Prompt Label */}
           <div className="mb-6 text-center">
             <p className="text-xs text-text-muted uppercase tracking-[0.2em] mb-1">Enter Verification Code</p>
             <p className="text-[10px] text-text-muted">Format: UTMS-XXXXXX</p>
           </div>
 
-          {/* Code Input */}
           <div className="w-full relative mb-4">
             <input
               ref={inputRef}
@@ -100,18 +94,15 @@ export default function ManualEntry({
               className="w-full h-20 bg-bg-surface border-2 border-border-subtle rounded-2xl text-center text-3xl font-mono font-bold text-text-primary placeholder:text-text-muted/30 focus:outline-none focus:border-primary transition-colors tracking-[0.15em] uppercase"
               disabled={loading}
             />
-            {/* Blinking cursor effect via border glow */}
             {!loading && code.length === 0 && (
               <div className="absolute inset-0 rounded-2xl border-2 border-primary/30 animate-pulse-glow pointer-events-none" />
             )}
           </div>
 
-          {/* Error Message */}
           {error && (
             <p className="text-xs text-danger mb-4 animate-fade-in">{error}</p>
           )}
 
-          {/* Verify Button */}
           <button
             type="submit"
             disabled={!code.trim() || loading}
@@ -129,7 +120,6 @@ export default function ManualEntry({
             )}
           </button>
 
-          {/* Hint */}
           <p className="text-[10px] text-text-muted mt-4">
             Press <kbd className="px-1.5 py-0.5 bg-bg-elevated rounded text-text-secondary font-mono text-[9px]">Enter</kbd> to verify
           </p>
